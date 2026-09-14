@@ -1,0 +1,30 @@
+#!/bin/bash
+"$(dirname "$0")/_log" "$(basename "$0")" "$@"
+
+# `gum filter` -> GUM_FILE, the entry the user picks. Unset means Esc: the stub
+# drains stdin so the producing pipeline does not see EPIPE, then fails.
+if [[ ${1-} == "filter" || ${1-} == "file" ]]; then
+  cat >/dev/null
+  [[ -n ${GUM_FILE-} ]] || exit 1
+  printf '%s\n' "$GUM_FILE"
+  exit 0
+fi
+
+# `gum input` is used for two different prompts, so answer them separately:
+# GUM_INPUT for the source prompt, GUM_NAME for the name prompt. Either falling
+# back to the offered --value, which is what pressing enter would do.
+prompt=""
+value=""
+while (($#)); do
+  case "$1" in
+    --prompt) prompt="$2"; shift 2 ;;
+    --value) value="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+if [[ $prompt == Name* ]]; then
+  printf '%s\n' "${GUM_NAME-$value}"
+else
+  printf '%s\n' "${GUM_INPUT-$value}"
+fi

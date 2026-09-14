@@ -58,9 +58,11 @@ dispatcher contract below are requirements, not preferences.
   `41 49 02` type-2), not by attempting `--appimage-extract` and reading failure.
 - **`/tmp` is tmpfs on Omarchy.** Extracting a large bundle there spends its
   uncompressed size in RAM. Extract to a disk-backed temp dir.
-- Payloads live in `~/Applications/` (moved, not copied), icons in
-  `~/.local/share/icons/hicolor/256x256/apps/`, launchers in
-  `~/.local/share/applications/`.
+- Payloads live in `~/Applications/` (moved, not copied), launchers in
+  `~/.local/share/applications/`, icons under `~/.local/share/icons/hicolor/`
+  in the size directory matching their real resolution (SVG in `scalable/`,
+  unrecognised sizes fall back to `256x256`). Removal must sweep every size
+  directory, not just one.
 
 ## Testing
 

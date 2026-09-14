@@ -1,0 +1,12 @@
+#!/bin/bash
+"$(dirname "$0")/_log" "$(basename "$0")" "$@"
+# Copies CURL_FIXTURE to the -o destination instead of reaching the network.
+out=""
+prev=""
+for arg in "$@"; do
+  [[ $prev == "-o" ]] && out="$arg"
+  prev="$arg"
+done
+[[ -n ${CURL_FAIL-} ]] && exit 22
+[[ -n $out && -n ${CURL_FIXTURE-} ]] || exit 1
+cp "$CURL_FIXTURE" "$out"

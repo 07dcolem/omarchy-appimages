@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install dependencies
+        # base-devel supplies cc, which the test fixtures need: a fake AppImage
+        # has to be a real ELF to carry the type magic at offset 8.
+        run: pacman -Sy --noconfirm --needed git shellcheck shfmt bats desktop-file-utils jq perl
+
+      - uses: actions/checkout@v4
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test

@@ -1,0 +1,6 @@
+#!/bin/bash
+"$(dirname "$0")/_log" "$(basename "$0")" "$@"
+# Drop the leading -- separator, then run the payload so launch tests can assert
+# the AppImage really was invoked with the arguments it was given.
+[[ ${1-} == "--" ]] && shift
+exec "$@"

@@ -152,8 +152,13 @@ cheap to add, and it is the thing that makes the upstream PR credible.
   before name validation existed is still removable.
 - With no name argument, presents the sorted list through `omarchy-menu-select`;
   exits with a message when there is nothing to remove.
-- Recovers the payload path by reversing the `Exec` escaping, undoing every
-  character the install command escapes, backslash last.
+- Recovers the payload path by reversing **both** escaping layers install applies,
+  outermost first: the desktop-entry string escaping (which doubled every
+  backslash, including the ones the Exec quoting had just added), then the Exec
+  argument quoting. Backslash goes last within each layer. Undoing only the Exec
+  layer does not leave a nearly-right path — the `\"` unescape pairs the second
+  backslash with the quote, so a stray backslash survives and the path matches
+  nothing.
 - Removes launcher, icon and payload; `--keep-file` preserves the payload only.
 - Honours `OMARCHY_REMOVE_NOTIFY=false` and otherwise sends a notification, so the
   upstream launcher-entry hook can suppress a duplicate toast.
@@ -204,8 +209,10 @@ Both are watched, so edits apply without restarting the shell, and
   the first deterministically; do not fail.
 - **Hostile metadata.** A bundled `Name` containing a newline could inject a second
   `Exec=` line. A payload path containing `"`, `$`, `` ` ``, `\` or `%` must survive
-  the write/read round trip — an unescape that misses one of these silently leaves
-  the payload on disk at removal time.
+  the write/read round trip — an unescape that misses a character, **or misses one
+  of the two escaping layers**, silently leaves the payload on disk at removal
+  time. `rm -f` exits 0 on a path that does not exist, so the failure is invisible:
+  removal reports success and orphans the payload.
 - **Name collisions.** Installing two AppImages that both call themselves the same
   thing overwrites the first launcher and orphans its payload.
 - **Payload filename collisions.** A file of the same basename already sitting in
@@ -226,8 +233,10 @@ Both are watched, so edits apply without restarting the shell, and
   differently named file.
 - **Self-updating AppImages** that rename themselves in place, breaking the
   hardcoded `Exec` path. Out of scope for this build; see Open questions.
-- **SVG icons** land in the `256x256` hicolor directory, which is wrong for a
-  scalable icon but consistent with what `omarchy-webapp-install` already does.
+- **Icon sizing.** Icons are filed under the hicolor directory matching their real
+  resolution (SVG under `scalable/`), so removal has to sweep every size directory
+  rather than assuming `256x256`. An unrecognised or non-square size falls back to
+  `256x256`.
 - **Removal of a launcher whose payload is already gone** must still clean the
   launcher and icon.
 - **A very large bundle** makes full extraction slow and consumes roughly its own

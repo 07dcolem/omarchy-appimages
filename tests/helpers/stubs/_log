@@ -1,0 +1,4 @@
+#!/bin/bash
+# Shared by the stubs: record an invocation so tests can assert on it. The
+# caller passes its own name -- $0 in here is always this script.
+printf '%s\n' "$*" >>"${STUB_LOG:-/dev/null}"

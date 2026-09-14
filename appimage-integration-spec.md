@@ -441,13 +441,29 @@ fi
 DESKTOP_FILE=$(path_for_app "$APP_NAME")
 DESKTOP_FILE="${DESKTOP_FILE:-$DESKTOP_DIR/$APP_NAME.desktop}"
 
-# Recover the payload path from the Exec line, undoing desktop_exec_arg. Must
-# reverse every character that helper escapes -- " $ ` \ and the doubled % --
-# or a path containing one of them silently fails to match and the payload is
-# left on disk. Backslash goes last, or the earlier unescapes eat its escapes.
+# Recover the payload path from the Exec line. TWO escaping layers went on at
+# write time and both have to come off, innermost last:
+#
+#   1. desktop_exec_arg quoted the path      "  -> \"    $ -> \$    % -> %%
+#   2. desktop_string_escape then ran over the whole Exec value and doubled
+#      every backslash -- including the ones layer 1 had just added, so \"
+#      became \\".
+#
+# Undoing only layer 1 does not leave a nearly-right path, it leaves a wrong
+# one: the \" unescape pairs the SECOND backslash with the quote and consumes
+# both, so a stray backslash survives that was never in the filename. The path
+# then matches nothing, rm -f exits 0 on it, and the payload is silently left on
+# disk while the launcher and icon go away. Within layer 2 and within layer 1,
+# backslash goes last, or the earlier unescapes eat its escapes.
 PAYLOAD=""
 if [[ -f $DESKTOP_FILE ]]; then
   PAYLOAD=$(sed -n 's/^Exec=omarchy-launch-appimage "\(.*\)".*/\1/p' "$DESKTOP_FILE" | head -1)
+
+  # Layer 2: desktop-entry string value.
+  [[ $PAYLOAD == "\\s"* ]] && PAYLOAD=" ${PAYLOAD#\\s}"
+  PAYLOAD=${PAYLOAD//\\\\/\\}
+
+  # Layer 1: Exec argument quoting.
   PAYLOAD=${PAYLOAD//%%/%}
   PAYLOAD=${PAYLOAD//\\\"/\"}
   PAYLOAD=${PAYLOAD//\\\$/\$}

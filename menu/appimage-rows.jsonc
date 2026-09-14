@@ -1,0 +1,2 @@
+  "install.appimage": {"icon":"󰏓","label":"AppImage","aliases":["appimage"],"action":"omarchy-launch-floating-terminal-with-presentation omarchy-appimage-install"},
+  "remove.appimage": {"icon":"󰏓","label":"AppImage","aliases":["appimage"],"when":"grep -qE '^Exec=.*omarchy-launch-appimage' $HOME/.local/share/applications/*.desktop","action":"omarchy-appimage-remove"},

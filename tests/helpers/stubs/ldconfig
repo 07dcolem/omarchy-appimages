@@ -1,0 +1,4 @@
+#!/bin/bash
+# Tests set FAKE_NO_FUSE to exercise the missing-libfuse warning path.
+[[ -n ${FAKE_NO_FUSE-} ]] && exit 0
+echo "	libfuse.so.2 (libc6,x86-64) => /usr/lib/libfuse.so.2"

@@ -1,0 +1,3 @@
+#!/bin/bash
+"$(dirname "$0")/_log" "$(basename "$0")" "$@"
+printf '%s\n' "${MENU_SELECT_CHOICE-}"

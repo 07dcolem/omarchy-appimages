@@ -1,0 +1,10 @@
+--- a/omarchy	2026-09-13 22:00:09.050578523 -0600
++++ b/omarchy	2026-09-13 22:00:09.077796008 -0600
+@@ -27,6 +27,7 @@
+ declare -A GROUP_DESCRIPTIONS
+ 
+ GROUP_DESCRIPTIONS[agent]="AI coding agent usage data"
++GROUP_DESCRIPTIONS[appimage]="AppImage installation and launchers"
+ GROUP_DESCRIPTIONS[audio]="Audio input and output controls"
+ GROUP_DESCRIPTIONS[bar]="Omarchy shell bar layout and settings"
+ GROUP_DESCRIPTIONS[battery]="Battery status helpers"

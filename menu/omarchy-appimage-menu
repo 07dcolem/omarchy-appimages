@@ -1,0 +1,99 @@
+#!/bin/bash
+
+# Add or remove the AppImage rows in an Omarchy menu extension file.
+#
+# Usage: omarchy-appimage-menu add|remove [menu-file]
+#
+# The rows are wrapped in marker comments and inserted immediately after the
+# opening brace, not before the closing one. That lets every row carry a trailing
+# comma unconditionally: whatever follows stays valid, and Omarchy's stripJsonc
+# strips a trailing comma before JSON.parse. Appending at the end would instead
+# require knowing whether the previous entry already ended in a comma -- and
+# getting that wrong is expensive, because parseMenuJsonc returns an empty list on
+# a parse error, silently dropping every row the user wrote.
+#
+# Markers are whole-line comments: stripJsonc only removes // comments that start
+# a line, so a trailing comment after content would reach JSON.parse and break it.
+
+set -e
+
+MENU_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROWS_FILE="$MENU_DIR/appimage-rows.jsonc"
+
+MARKER_BEGIN="  // >>> omarchy-appimage-integration (managed block)"
+MARKER_END="  // <<< omarchy-appimage-integration"
+
+VERB="${1-}"
+MENU_FILE="${2:-$HOME/.config/omarchy/extensions/omarchy-menu.jsonc}"
+
+if [[ $VERB != "add" && $VERB != "remove" ]]; then
+  echo "Usage: omarchy-appimage-menu add|remove [menu-file]" >&2
+  exit 1
+fi
+
+has_block() {
+  [[ -f $MENU_FILE ]] && grep -qF "$MARKER_BEGIN" "$MENU_FILE"
+}
+
+if [[ $VERB == "add" ]]; then
+  if [[ ! -f $ROWS_FILE ]]; then
+    echo "Missing rows file: $ROWS_FILE" >&2
+    exit 1
+  fi
+
+  if has_block; then
+    echo "Menu rows already present in $MENU_FILE"
+    exit 0
+  fi
+
+  if [[ ! -f $MENU_FILE ]]; then
+    mkdir -p "$(dirname "$MENU_FILE")"
+    {
+      echo "{"
+      echo "$MARKER_BEGIN"
+      cat "$ROWS_FILE"
+      echo "$MARKER_END"
+      echo "}"
+    } >"$MENU_FILE"
+    echo "Created $MENU_FILE with the AppImage menu rows"
+    exit 0
+  fi
+
+  # Refuse rather than guess: a file with no opening brace is not something this
+  # script can edit without risking the user's content.
+  if ! grep -q '{' "$MENU_FILE"; then
+    echo "No opening brace found in $MENU_FILE; not editing it." >&2
+    exit 1
+  fi
+
+  TMP=$(mktemp)
+  trap 'rm -f "$TMP"' EXIT
+  awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" -v rows="$ROWS_FILE" '
+    { print }
+    !done && /{/ {
+      print begin
+      while ((getline line < rows) > 0) print line
+      close(rows)
+      print end
+      done = 1
+    }
+  ' "$MENU_FILE" >"$TMP"
+  cat "$TMP" >"$MENU_FILE"
+  echo "Added the AppImage menu rows to $MENU_FILE"
+  exit 0
+fi
+
+if ! has_block; then
+  echo "No AppImage menu rows found in $MENU_FILE"
+  exit 0
+fi
+
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" '
+  index($0, begin) == 1 { skipping = 1; next }
+  index($0, end) == 1 && skipping { skipping = 0; next }
+  !skipping { print }
+' "$MENU_FILE" >"$TMP"
+cat "$TMP" >"$MENU_FILE"
+echo "Removed the AppImage menu rows from $MENU_FILE"
