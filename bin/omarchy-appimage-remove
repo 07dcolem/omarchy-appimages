@@ -9,28 +9,17 @@ ICON_BASE="$HOME/.local/share/icons/hicolor"
 DESKTOP_DIR="$HOME/.local/share/applications"
 
 desktop_payload_path() {
-  # Reverse of the two escaping layers omarchy-appimage-install applies: Exec
-  # argument quoting first, then desktop-entry string escaping on top, which
-  # doubles every backslash the first layer produced. They have to come off in
-  # that order. Missing a layer silently fails to match the payload, and removal
-  # then leaves it on disk.
+  # The payload path is stored in its own X-AppImage-Payload key rather than
+  # parsed back out of Exec. Exec still carries the fully quoted and escaped
+  # path -- that is how the app launches, and the spec requires it -- but reading
+  # it back meant undoing two escaping layers in a fixed order, which is how a
+  # payload once survived removal. A dedicated key goes through desktop-entry
+  # string escaping only, and install rejects tab, CR and LF in the path, so the
+  # only escapes that can appear are a doubled backslash and a leading \s.
   local payload
-  payload=$(sed -n 's/^Exec=omarchy-launch-appimage "\(.*\)".*/\1/p' "$1" | head -1)
-
-  # Layer 1, desktop-entry string value: undo a leading \s, then the backslash
-  # doubling. Install refuses paths containing tab, CR or LF, so those escapes
-  # cannot appear here and a single left-to-right pass is not needed.
+  payload=$(sed -n 's/^X-AppImage-Payload=//p' "$1" | head -1)
   [[ $payload == "\\s"* ]] && payload=" ${payload#\\s}"
-  payload=${payload//\\\\/\\}
-
-  # Layer 2, Exec argument quoting. Backslash goes last, or the earlier
-  # unescapes eat its escapes.
-  payload=${payload//%%/%}
-  payload=${payload//\\\"/\"}
-  payload=${payload//\\\$/\$}
-  payload=${payload//\\\`/\`}
-  payload=${payload//\\\\/\\}
-  printf '%s' "$payload"
+  printf '%s' "${payload//\\\\/\\}"
 }
 
 KEEP_FILE=false

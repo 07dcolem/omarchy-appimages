@@ -72,6 +72,10 @@ that.
 | Icon | `~/.local/share/icons/hicolor/<size>/apps/`, by the icon's real resolution |
 | Launcher | `~/.local/share/applications/<Name>.desktop` |
 
+Generated launchers carry an `X-AppImage-Payload` key naming the payload. Removal
+reads that rather than parsing the path back out of `Exec`, where two layers of
+escaping would have to be undone in order.
+
 Installing **moves** the `.AppImage` rather than copying it, so the payload has
 exactly one home and removal can delete it unambiguously. The move is reported on
 stdout.

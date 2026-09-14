@@ -373,3 +373,21 @@ teardown() { harness_teardown; }
   [[ $output == *"--replace"* ]]
   [ -e "$HOME/Downloads/Two.AppImage" ]
 }
+
+@test "install: records the payload path in its own key, unescaped for plain paths" {
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo"
+  omarchy-appimage-install "$HOME/Downloads/Foo.AppImage"
+  [ "$(desktop_key "$DESKTOP_DIR/Foo.desktop" X-AppImage-Payload)" = "$APPS_DIR/Foo.AppImage" ]
+}
+
+@test "install: the payload key round-trips shell metacharacters" {
+  nasty='We"ird $ubuntu `x` 100% (1).AppImage'
+  make_appimage "$HOME/Downloads/$nasty" --name "Nasty"
+  omarchy-appimage-install "$HOME/Downloads/$nasty"
+
+  # No escaping is needed for these: only backslash and a leading space are
+  # transformed by desktop-entry string escaping.
+  [ "$(desktop_key "$DESKTOP_DIR/Nasty.desktop" X-AppImage-Payload)" = "$APPS_DIR/$nasty" ]
+  run desktop-file-validate "$DESKTOP_DIR/Nasty.desktop"
+  [ "$status" -eq 0 ]
+}

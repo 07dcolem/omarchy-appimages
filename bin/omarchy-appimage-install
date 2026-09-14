@@ -65,26 +65,19 @@ desktop_exec_arg() {
 }
 
 desktop_payload_path() {
-  # Reverse of both escaping layers, for checking whether a payload is still in
-  # use. Duplicated in omarchy-appimage-remove for the same no-shared-library
-  # reason; the two copies must stay in step.
+  # Duplicated in omarchy-appimage-remove for the no-shared-library reason;
+  # the two copies must stay in step.
+  # The payload path is stored in its own X-AppImage-Payload key rather than
+  # parsed back out of Exec. Exec still carries the fully quoted and escaped
+  # path -- that is how the app launches, and the spec requires it -- but reading
+  # it back meant undoing two escaping layers in a fixed order, which is how a
+  # payload once survived removal. A dedicated key goes through desktop-entry
+  # string escaping only, and install rejects tab, CR and LF in the path, so the
+  # only escapes that can appear are a doubled backslash and a leading \s.
   local payload
-  payload=$(sed -n 's/^Exec=omarchy-launch-appimage "\(.*\)".*/\1/p' "$1" | head -1)
-
-  # Layer 1, desktop-entry string value: undo a leading \s, then the backslash
-  # doubling. Install refuses paths containing tab, CR or LF, so those escapes
-  # cannot appear here and a single left-to-right pass is not needed.
+  payload=$(sed -n 's/^X-AppImage-Payload=//p' "$1" | head -1)
   [[ $payload == "\\s"* ]] && payload=" ${payload#\\s}"
-  payload=${payload//\\\\/\\}
-
-  # Layer 2, Exec argument quoting. Backslash goes last, or the earlier
-  # unescapes eat its escapes.
-  payload=${payload//%%/%}
-  payload=${payload//\\\"/\"}
-  payload=${payload//\\\$/\$}
-  payload=${payload//\\\`/\`}
-  payload=${payload//\\\\/\\}
-  printf '%s' "$payload"
+  printf '%s' "${payload//\\\\/\\}"
 }
 
 payload_in_use() {
@@ -456,6 +449,10 @@ fi
 if [[ -n $MIME_TYPES ]]; then
   printf 'MimeType=%s\n' "$(desktop_string_escape "$MIME_TYPES")" >>"$DESKTOP_FILE"
 fi
+# The payload path, for removal and collision checks. Exec carries it too, but
+# only this key is ever read back.
+printf 'X-AppImage-Payload=%s\n' "$(desktop_string_escape "$TARGET")" >>"$DESKTOP_FILE"
+
 # Recorded so a later install can say what it is replacing.
 BUNDLE_VERSION=$(desktop_value X-AppImage-Version)
 if [[ -n $BUNDLE_VERSION ]]; then

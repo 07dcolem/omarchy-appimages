@@ -105,3 +105,30 @@ DESK
   run find "$ICON_BASE" -name 'foo.*' -type f
   [ -z "$output" ]
 }
+
+@test "remove: reads the payload from its own key, not from Exec" {
+  install_fixture Foo.AppImage "Foo"
+
+  # Corrupt the Exec path. Removal must still find and delete the payload,
+  # which it can only do by reading X-AppImage-Payload.
+  sed -i 's|^Exec=omarchy-launch-appimage "[^"]*"|Exec=omarchy-launch-appimage "/nonexistent/Decoy.AppImage"|' \
+    "$DESKTOP_DIR/Foo.desktop"
+
+  omarchy-appimage-remove "Foo"
+  [ ! -e "$APPS_DIR/Foo.AppImage" ]
+  [ ! -e "$DESKTOP_DIR/Foo.desktop" ]
+}
+
+@test "remove: a launcher without the payload key still loses launcher and icon" {
+  install_fixture Foo.AppImage "Foo"
+  # A launcher as an older version of this tool would have written it.
+  sed -i '/^X-AppImage-Payload=/d' "$DESKTOP_DIR/Foo.desktop"
+
+  run omarchy-appimage-remove "Foo"
+  [ "$status" -eq 0 ]
+  [ ! -e "$DESKTOP_DIR/Foo.desktop" ]
+  # The icon is keyed off the app name, so it goes regardless.
+  [ -z "$(find "$ICON_BASE" -type f -name 'foo.*')" ]
+  # The payload cannot be located without the key, so it is left behind.
+  [ -e "$APPS_DIR/Foo.AppImage" ]
+}

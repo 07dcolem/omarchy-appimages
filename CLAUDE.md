@@ -48,9 +48,13 @@ dispatcher contract below are requirements, not preferences.
   through freedesktop `Exec` quoting. A raw newline in a `Name` injects a second
   `Exec=` line. The two escaping helpers in the reference implementation are
   copied verbatim for this reason — do not "simplify" them.
-- **Escaping must round-trip.** `omarchy-appimage-remove` recovers the payload path
-  by reversing the install-side escaping. Miss one character and the payload is
-  silently left on disk. Unescape backslash last.
+- **Never read the payload path back out of `Exec`.** `Exec` carries it fully
+  quoted and escaped because the spec requires that for launching, but recovering
+  it means undoing two escaping layers in a fixed order, and getting that wrong
+  silently orphans the payload. Removal and collision checks read the dedicated
+  `X-AppImage-Payload` key instead, which only ever goes through desktop-entry
+  string escaping. Install rejects tab, CR and LF in the path so that reverse
+  stays a two-line operation.
 - **`Exec=` must start with `omarchy-launch-appimage`.** That name is the routing
   marker Omarchy's `omarchy-remove-launcher-entry` sniffs to dispatch removals.
   Pointing `Exec` straight at the `.AppImage` breaks removal.
