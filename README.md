@@ -5,7 +5,7 @@ gives web apps and TUIs.
 
 | Command | What it does |
 |---------|--------------|
-| `omarchy-appimage-install [path-or-url] [name]` | Stage the payload, read the bundle's own metadata, write a launcher |
+| `omarchy-appimage-install [path-or-url] [name] [--replace]` | Stage the payload, read the bundle's own metadata, write a launcher |
 | `omarchy-appimage-remove [name] [--keep-file]` | Remove launcher, icon and payload together |
 | `omarchy-launch-appimage <path> [args...]` | Thin exec wrapper; what the launcher's `Exec=` points at |
 
@@ -15,6 +15,20 @@ Choose "Enter a path or URL..." (or press Esc) to type one instead, which is als
 how you install from a URL. The name, comment, icon,
 categories, `StartupWMClass` and `MimeType` all come out of the AppImage itself, so
 unlike the web app and TUI installers it never asks you for an icon URL.
+
+## Upgrading
+
+Installing an app that is already installed asks whether to replace it, naming
+both versions when the bundles declare `X-AppImage-Version`:
+
+    Replace the installed "Ledger Wallet" 4.17.1 with 4.19.0?
+
+Answering yes repoints the launcher and **deletes the previous payload**, which
+matters because a new version usually ships under a different filename — without
+that, the old one is orphaned in `~/Applications` forever.
+
+Non-interactively the collision is refused unless you pass `--replace`, so a
+script never silently overwrites an installed app.
 
 ## Prerequisite: FUSE 2
 
@@ -88,8 +102,8 @@ Claude Code.
   launcher.
 - **Type-1 AppImages** have no `--appimage-extract`, so they get the filename and a
   generic icon.
-- **No update command.** `X-AppImage-Version` is read from the bundle but not yet
-  used to detect that a newer build is available.
+- **No update command.** `X-AppImage-Version` is recorded and used when replacing
+  an install, but nothing checks upstream for a newer build.
 - **Menu row ordering** puts the AppImage rows at the bottom of Install and Remove
   rather than beside Web App and TUI. User-added ids are appended after all default
   ids and cannot be reordered from the extension file.

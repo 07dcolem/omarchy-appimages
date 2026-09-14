@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Install an AppImage and create a desktop launcher
-# omarchy:args=[path-or-url] [name]
+# omarchy:args=[path-or-url] [name] [--replace]
 
 set -e
 
@@ -88,13 +88,23 @@ desktop_payload_path() {
 }
 
 payload_in_use() {
-  local wanted="$1" file
+  # $2, when given, is a launcher to ignore: the one being replaced still points
+  # at its own payload, and that must not count as a conflicting user.
+  local wanted="$1" ignore="${2-}" file
   [[ -d $DESKTOP_DIR ]] || return 1
   while IFS= read -r -d '' file; do
+    [[ -n $ignore && $file == "$ignore" ]] && continue
     grep -q '^Exec=.*omarchy-launch-appimage' "$file" || continue
     [[ $(desktop_payload_path "$file") == "$wanted" ]] && return 0
   done < <(find "$DESKTOP_DIR" -name '*.desktop' -print0 2>/dev/null)
   return 1
+}
+
+remove_icons_for() {
+  local icon_name="$1" icon
+  while IFS= read -r -d '' icon; do
+    rm -f "$icon"
+  done < <(find "$ICON_BASE" -mindepth 2 -maxdepth 3 -type f -name "$icon_name.*" -print0 2>/dev/null)
 }
 
 require_appimage() {
@@ -161,6 +171,17 @@ if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
 fi
 
 # --- input ---
+
+REPLACE=false
+ARGS=()
+for arg in "$@"; do
+  if [[ $arg == "--replace" ]]; then
+    REPLACE=true
+  else
+    ARGS+=("$arg")
+  fi
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
 
 if (($# == 0)); then
   echo -e "\e[32mLet's install an AppImage you can start with the app launcher.\n\e[0m"
@@ -296,15 +317,38 @@ fi
 require_plain_name "$APP_NAME"
 
 DESKTOP_FILE="$DESKTOP_DIR/$APP_NAME.desktop"
+OLD_PAYLOAD=""
 if [[ -e $DESKTOP_FILE ]]; then
-  echo "A launcher named \"$APP_NAME\" already exists." >&2
-  echo "Remove it first with: omarchy-appimage-remove \"$APP_NAME\"" >&2
-  echo "Or install under a different name: omarchy-appimage-install <source> <name>" >&2
-  exit 1
+  OLD_PAYLOAD=$(desktop_payload_path "$DESKTOP_FILE")
+  OLD_VERSION=$(sed -n 's/^X-AppImage-Version=//p' "$DESKTOP_FILE" | head -1)
+  NEW_VERSION=$(desktop_value X-AppImage-Version)
+
+  # Name the versions when both bundles declare one -- "4.17.1 -> 4.19.0" is the
+  # difference between a confident upgrade and a guess.
+  WHICH="\"$APP_NAME\""
+  if [[ -n $OLD_VERSION && -n $NEW_VERSION ]]; then
+    WHICH="$WHICH $OLD_VERSION with $NEW_VERSION"
+  elif [[ -n $NEW_VERSION ]]; then
+    WHICH="$WHICH with $NEW_VERSION"
+  fi
+
+  if [[ $REPLACE == false && $INTERACTIVE == true ]]; then
+    if gum confirm "Replace the installed $WHICH?"; then
+      REPLACE=true
+    fi
+  fi
+
+  if [[ $REPLACE == false ]]; then
+    echo "A launcher named \"$APP_NAME\" already exists." >&2
+    echo "Re-run with --replace to upgrade it in place," >&2
+    echo "remove it first with: omarchy-appimage-remove \"$APP_NAME\"," >&2
+    echo "or install under a different name: omarchy-appimage-install <source> <name>" >&2
+    exit 1
+  fi
 fi
 
 # Overwriting a payload another launcher points at would break that launcher.
-if [[ -e $TARGET && ! $SOURCE_FILE -ef $TARGET ]] && payload_in_use "$TARGET"; then
+if [[ -e $TARGET && ! $SOURCE_FILE -ef $TARGET ]] && payload_in_use "$TARGET" "$DESKTOP_FILE"; then
   echo "$TARGET already exists and is used by an installed AppImage." >&2
   echo "Remove that one first, or rename the file you are installing." >&2
   exit 1
@@ -341,6 +385,16 @@ else
 fi
 
 chmod +x "$TARGET"
+
+if [[ $REPLACE == true ]]; then
+  if [[ -n $OLD_PAYLOAD && $OLD_PAYLOAD != "$TARGET" && -f $OLD_PAYLOAD ]]; then
+    rm -f "$OLD_PAYLOAD"
+    echo "Removed the previous payload $OLD_PAYLOAD"
+  fi
+  # Sweep the old icon before writing the new one: a different resolution lands
+  # in a different hicolor directory and would otherwise linger.
+  remove_icons_for "$(safe_icon_name "$APP_NAME")"
+fi
 
 # --- icon ---
 
@@ -401,6 +455,11 @@ fi
 # registers x-scheme-handler/ledgerlive, which is lost if this is dropped.
 if [[ -n $MIME_TYPES ]]; then
   printf 'MimeType=%s\n' "$(desktop_string_escape "$MIME_TYPES")" >>"$DESKTOP_FILE"
+fi
+# Recorded so a later install can say what it is replacing.
+BUNDLE_VERSION=$(desktop_value X-AppImage-Version)
+if [[ -n $BUNDLE_VERSION ]]; then
+  printf 'X-AppImage-Version=%s\n' "$(desktop_string_escape "$BUNDLE_VERSION")" >>"$DESKTOP_FILE"
 fi
 
 chmod +x "$DESKTOP_FILE"

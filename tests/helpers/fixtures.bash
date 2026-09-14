@@ -15,6 +15,7 @@
 #                             [--icon-key K] [--type 1|2] [--no-icon]
 #                             [--no-desktop] [--extra-desktop] [--icon-128]
 #                             [--mime M] [--comment C] [--refuse-extract]
+#                             [--version V]
 
 # A 1x1 PNG (no recognised hicolor size, so it lands in the 256x256 fallback) and
 # a real 128x128 one, for asserting size-aware icon filing.
@@ -25,7 +26,7 @@ make_appimage() {
   local path="$1"; shift
   local name="Fixture App" categories="Utility;" wmclass="fixture-app"
   local icon_key="fixture-icon" type=2 want_icon=1 want_desktop=1 extra_desktop=0
-  local icon_b64="$FIXTURE_ICON_1PX" mime="" comment="" refuse_extract=0
+  local icon_b64="$FIXTURE_ICON_1PX" mime="" comment="" refuse_extract=0 version=""
 
   while (($#)); do
     case "$1" in
@@ -41,6 +42,7 @@ make_appimage() {
       --mime) mime="$2"; shift 2 ;;
       --comment) comment="$2"; shift 2 ;;
       --refuse-extract) refuse_extract=1; shift ;;
+      --version) version="$2"; shift 2 ;;
       *) echo "make_appimage: unknown option $1" >&2; return 1 ;;
     esac
   done
@@ -65,6 +67,7 @@ make_appimage() {
         [[ -n $categories ]] && printf 'Categories=%s\n' "$categories"
         [[ -n $mime ]] && printf 'MimeType=%s\n' "$mime"
         [[ -n $comment ]] && printf 'Comment=%s\n' "$comment"
+        [[ -n $version ]] && printf 'X-AppImage-Version=%s\n' "$version"
         [[ -n $wmclass ]] && printf 'StartupWMClass=%s\n' "$wmclass"
         printf 'Icon=%s\n' "$icon_key"
         echo 'Type=Application'

@@ -296,3 +296,80 @@ teardown() { harness_teardown; }
   [ -f "$DESKTOP_DIR/Typed.desktop" ]
   [ ! -e "$DESKTOP_DIR/Listed.desktop" ]
 }
+
+@test "install: records X-AppImage-Version so an upgrade can name it" {
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "1.2.3"
+  omarchy-appimage-install "$HOME/Downloads/Foo.AppImage"
+  [ "$(desktop_key "$DESKTOP_DIR/Foo.desktop" X-AppImage-Version)" = "1.2.3" ]
+}
+
+@test "install: --replace upgrades in place and retires the old payload" {
+  make_appimage "$HOME/Downloads/App-1.0.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/App-1.0.AppImage"
+  [ -e "$APPS_DIR/App-1.0.AppImage" ]
+
+  make_appimage "$HOME/Downloads/App-2.0.AppImage" --name "Same App" --version "2.0"
+  run omarchy-appimage-install "$HOME/Downloads/App-2.0.AppImage" --replace
+  [ "$status" -eq 0 ]
+
+  # The differently-named old payload must not be left behind.
+  [ ! -e "$APPS_DIR/App-1.0.AppImage" ]
+  [ -e "$APPS_DIR/App-2.0.AppImage" ]
+  [ "$(ls -A "$APPS_DIR" | wc -l)" -eq 1 ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "2.0" ]
+  [[ $output == *"Removed the previous payload"* ]]
+}
+
+@test "install: --replace works when the new build keeps the same filename" {
+  make_appimage "$HOME/Downloads/App.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/App.AppImage"
+
+  make_appimage "$HOME/Downloads/App.AppImage" --name "Same App" --version "2.0"
+  run omarchy-appimage-install "$HOME/Downloads/App.AppImage" --replace
+  [ "$status" -eq 0 ]
+  [ -e "$APPS_DIR/App.AppImage" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "2.0" ]
+}
+
+@test "install: --replace sweeps an old icon of a different resolution" {
+  make_appimage "$HOME/Downloads/App-1.0.AppImage" --name "Same App" --icon-128
+  omarchy-appimage-install "$HOME/Downloads/App-1.0.AppImage"
+  [ -f "$ICON_BASE/128x128/apps/same-app.png" ]
+
+  make_appimage "$HOME/Downloads/App-2.0.AppImage" --name "Same App"
+  omarchy-appimage-install "$HOME/Downloads/App-2.0.AppImage" --replace
+
+  [ ! -e "$ICON_BASE/128x128/apps/same-app.png" ]
+  [ "$(find "$ICON_BASE" -name 'same-app.*' -type f | wc -l)" -eq 1 ]
+}
+
+@test "install: the interactive prompt offers to replace, and declining aborts" {
+  make_appimage "$HOME/Downloads/App-1.0.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/App-1.0.AppImage"
+
+  make_appimage "$HOME/Downloads/App-2.0.AppImage" --name "Same App" --version "2.0"
+
+  # Declining leaves the old install untouched.
+  GUM_FILE="$HOME/Downloads/App-2.0.AppImage" GUM_CONFIRM=no run omarchy-appimage-install
+  [ "$status" -ne 0 ]
+  [ -e "$APPS_DIR/App-1.0.AppImage" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "1.0" ]
+
+  # Accepting upgrades, and names both versions in the prompt.
+  GUM_FILE="$HOME/Downloads/App-2.0.AppImage" GUM_CONFIRM=yes run omarchy-appimage-install
+  [ "$status" -eq 0 ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "2.0" ]
+  [ ! -e "$APPS_DIR/App-1.0.AppImage" ]
+  [[ $(stub_log_for gum) == *"1.0 with 2.0"* ]]
+}
+
+@test "install: still refuses a collision non-interactively without --replace" {
+  make_appimage "$HOME/Downloads/One.AppImage" --name "Same App"
+  omarchy-appimage-install "$HOME/Downloads/One.AppImage"
+
+  make_appimage "$HOME/Downloads/Two.AppImage" --name "Same App"
+  run omarchy-appimage-install "$HOME/Downloads/Two.AppImage"
+  [ "$status" -ne 0 ]
+  [[ $output == *"--replace"* ]]
+  [ -e "$HOME/Downloads/Two.AppImage" ]
+}

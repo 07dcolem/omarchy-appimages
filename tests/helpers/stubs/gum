@@ -10,6 +10,12 @@ if [[ ${1-} == "filter" || ${1-} == "file" ]]; then
   exit 0
 fi
 
+# `gum confirm` -> GUM_CONFIRM=yes accepts, anything else declines.
+if [[ ${1-} == "confirm" ]]; then
+  [[ ${GUM_CONFIRM-} == "yes" ]]
+  exit $?
+fi
+
 # `gum input` is used for two different prompts, so answer them separately:
 # GUM_INPUT for the source prompt, GUM_NAME for the name prompt. Either falling
 # back to the offered --value, which is what pressing enter would do.
