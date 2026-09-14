@@ -1,5 +1,7 @@
 # AppImage integration for Omarchy
 
+[![CI](https://github.com/kabe2007/omarchy-appimage-integration/actions/workflows/ci.yml/badge.svg)](https://github.com/kabe2007/omarchy-appimage-integration/actions/workflows/ci.yml)
+
 Gives AppImages the same install / launch / remove treatment Omarchy already
 gives web apps and TUIs.
 
@@ -103,11 +105,14 @@ Claude Code.
 - **Self-updating AppImages** that rename themselves in place break the launcher's
   hardcoded `Exec` path. The fix, if it ever bites, is a stable symlink.
 - **No update command.** Re-running install against a new download replaces the
-  launcher.
+  launcher. `X-AppImage-Version` is recorded and used when replacing an install,
+  but nothing checks upstream for a newer build.
 - **Type-1 AppImages** have no `--appimage-extract`, so they get the filename and a
   generic icon.
-- **No update command.** `X-AppImage-Version` is recorded and used when replacing
-  an install, but nothing checks upstream for a newer build.
 - **Menu row ordering** puts the AppImage rows at the bottom of Install and Remove
   rather than beside Web App and TUI. User-added ids are appended after all default
   ids and cannot be reordered from the extension file.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

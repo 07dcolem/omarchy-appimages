@@ -6,16 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Three Bash commands (`omarchy-launch-appimage`, `omarchy-appimage-install`,
 `omarchy-appimage-remove`) that give AppImages the install/launch/remove treatment
-Omarchy already gives web apps and TUIs. **The scripts are not written yet** — the
-repo currently holds only design and spec documents.
+Omarchy already gives web apps and TUIs.
 
-- `appimage-integration-spec.md` — background, discovered Omarchy internals, and a
-  reference implementation to build from. Read this before touching the scripts.
+- `bin/` — the three scripts.
+- `menu/` — the menu rows, and the marker-based merge tool that installs them.
+- `tests/` — the `bats` suite, run via `make test`.
+- `upstream/` — the two Omarchy patches, kept as documented diffs, plus the
+  security model and the rationale for `X-AppImage-Payload`.
+- `appimage-integration-spec.md` — background, discovered Omarchy internals, and
+  the reference implementation the scripts were built from. Read this before
+  touching them.
 - `_specs/omarchy-appimage-scripts.md` — the build spec: requirements, edge cases,
   acceptance criteria, test plan.
 
-Target layout once building starts: `bin/` for the three scripts, `tests/` for
-`bats` files, a `Makefile` with `lint` / `format` / `test` / `install` / `uninstall`.
+The `Makefile` carries `lint` / `format` / `test` / `install` / `uninstall`.
 
 **This is being built toward an upstream Omarchy PR.** House style and the
 dispatcher contract below are requirements, not preferences.
