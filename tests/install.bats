@@ -238,6 +238,16 @@ teardown() { harness_teardown; }
   [ ! -e "$ICONS_DIR/foo.png" ]
 }
 
+@test "install: falls back to 256x256 for icons hicolor does not declare" {
+  # hicolor's index.theme declares apps directories only up to 512x512, so an
+  # icon filed under 1024x1024 is never found by freedesktop icon lookup.
+  make_appimage "$HOME/Downloads/Big.AppImage" --name "Big" --icon-1024
+  omarchy-appimage-install "$HOME/Downloads/Big.AppImage"
+
+  [ -f "$ICON_BASE/256x256/apps/big.png" ]
+  [ ! -e "$ICON_BASE/1024x1024/apps/big.png" ]
+}
+
 @test "install: warns loudly when a type-2 bundle will not extract" {
   make_appimage "$HOME/Downloads/Broken.AppImage" --type 2 --refuse-extract
   run omarchy-appimage-install "$HOME/Downloads/Broken.AppImage"

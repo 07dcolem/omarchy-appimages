@@ -140,10 +140,13 @@ icon_extension() {
 }
 
 icon_install_dir() {
-  # Bundles ship icons at their real resolution -- Ledger Live's is 1024px -- so
-  # file them under the matching hicolor size rather than dropping everything in
-  # 256x256 the way omarchy-webapp-install does. A non-square or unrecognised
-  # size falls back to 256x256, which is wrong but at least consistent.
+  # Bundles ship icons at their real resolution, so file them under the matching
+  # hicolor size rather than dropping everything in 256x256 the way
+  # omarchy-webapp-install does. Only sizes hicolor's index.theme declares are
+  # used: an icon written to an undeclared directory -- 1024x1024, which bundles
+  # like Ledger Live ship -- is never found by freedesktop icon lookup. A
+  # non-square, oversized or unrecognised icon falls back to 256x256, which is
+  # wrong about the resolution but at least resolvable.
   local src="$1" dims w h
   case "${src,,}" in
   *.svg | *.svgz)
@@ -157,7 +160,7 @@ icon_install_dir() {
   h=${dims##* x }
   if [[ -n $w && $w == "$h" ]]; then
     case $w in
-    16 | 22 | 24 | 32 | 48 | 64 | 72 | 96 | 128 | 192 | 256 | 512 | 1024)
+    16 | 22 | 24 | 32 | 48 | 64 | 72 | 96 | 128 | 192 | 256 | 512)
       printf '%s/%sx%s/apps' "$ICON_BASE" "$w" "$w"
       return
       ;;
