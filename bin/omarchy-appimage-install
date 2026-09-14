@@ -123,6 +123,22 @@ require_appimage() {
   esac
 }
 
+icon_extension() {
+  # From content, not from the path. .DirIcon is a real bundle convention and
+  # carries no extension at all, and the extraction directory lives under
+  # ~/.cache, so the last dot in the path is usually inside a directory
+  # component -- ${path##*.} on it yields "DirIcon", or worse a path fragment
+  # when .DirIcon points at an extensionless file.
+  case "$(file -b --mime-type "$1" 2>/dev/null)" in
+  image/png) printf 'png' ;;
+  image/svg+xml) printf 'svg' ;;
+  image/jpeg) printf 'jpg' ;;
+  image/webp) printf 'webp' ;;
+  image/x-icon | image/vnd.microsoft.icon) printf 'ico' ;;
+  *) printf 'png' ;;
+  esac
+}
+
 icon_install_dir() {
   # Bundles ship icons at their real resolution -- Ledger Live's is 1024px -- so
   # file them under the matching hicolor size rather than dropping everything in
@@ -405,15 +421,22 @@ if [[ -d $WORKDIR/squashfs-root ]]; then
   fi
 fi
 
+ICON_INSTALLED=false
 if [[ -n $ICON_SRC && -f $ICON_SRC ]]; then
-  EXT="${ICON_SRC##*.}"
-  [[ $EXT == "$ICON_SRC" ]] && EXT="png"
-  ICON_DIR=$(icon_install_dir "$ICON_SRC")
-  mkdir -p "$ICON_DIR"
-  cp "$ICON_SRC" "$ICON_DIR/$ICON_VALUE.$EXT"
-  gtk-update-icon-cache "$ICON_BASE" &>/dev/null || true
-else
-  echo "No icon found inside the bundle; falling back to a generic one."
+  EXT=$(icon_extension "$ICON_SRC")
+  ICON_DIR=$(icon_install_dir "$ICON_SRC" "$EXT")
+  # The payload has already moved by this point, so a failure here must not
+  # abort under set -e and strand it with no launcher.
+  if mkdir -p "$ICON_DIR" 2>/dev/null && cp "$ICON_SRC" "$ICON_DIR/$ICON_VALUE.$EXT" 2>/dev/null; then
+    ICON_INSTALLED=true
+    gtk-update-icon-cache "$ICON_BASE" &>/dev/null || true
+  else
+    echo "Could not install the bundle's icon; falling back to a generic one." >&2
+  fi
+fi
+
+if [[ $ICON_INSTALLED == false ]]; then
+  [[ -n $ICON_SRC ]] || echo "No icon found inside the bundle; falling back to a generic one."
   ICON_VALUE="application-x-executable"
 fi
 

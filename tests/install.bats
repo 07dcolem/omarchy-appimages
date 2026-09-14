@@ -391,3 +391,37 @@ teardown() { harness_teardown; }
   run desktop-file-validate "$DESKTOP_DIR/Nasty.desktop"
   [ "$status" -eq 0 ]
 }
+
+@test "install: a plain .DirIcon with no extension installs as a usable png" {
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --diricon-plain
+  run omarchy-appimage-install "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+
+  # The extension comes from content, not the path: ${path##*.} on
+  # .../extract-XXXX/squashfs-root/.DirIcon yields "DirIcon", which no icon
+  # loader would ever find.
+  [ -z "$(find "$ICON_BASE" -name 'foo.DirIcon')" ]
+  [ -n "$(find "$ICON_BASE" -name 'foo.png' -type f)" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Foo.desktop" Icon)" = "foo" ]
+}
+
+@test "install: an icon that cannot be installed does not strand the payload" {
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo"
+  # Block only the size subdirectory, not $ICON_BASE itself: install creates
+  # the base early, before the payload moves, so breaking that would fail for a
+  # different reason. The 1x1 fixture icon resolves to the 256x256 fallback.
+  rm -rf "$ICON_BASE/256x256"
+  : >"$ICON_BASE/256x256"
+
+  run omarchy-appimage-install "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+  [[ $output == *"Could not install the bundle's icon"* ]]
+
+  # The install still completed rather than aborting under set -e with the
+  # user's file relocated and nothing pointing at it.
+  [ -x "$APPS_DIR/Foo.AppImage" ]
+  [ -f "$DESKTOP_DIR/Foo.desktop" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Foo.desktop" Icon)" = "application-x-executable" ]
+  run desktop-file-validate "$DESKTOP_DIR/Foo.desktop"
+  [ "$status" -eq 0 ]
+}

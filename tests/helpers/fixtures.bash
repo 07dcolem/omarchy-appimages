@@ -15,7 +15,7 @@
 #                             [--icon-key K] [--type 1|2] [--no-icon]
 #                             [--no-desktop] [--extra-desktop] [--icon-128]
 #                             [--mime M] [--comment C] [--refuse-extract]
-#                             [--version V]
+#                             [--version V] [--diricon-plain]
 
 # A 1x1 PNG (no recognised hicolor size, so it lands in the 256x256 fallback) and
 # a real 128x128 one, for asserting size-aware icon filing.
@@ -27,6 +27,7 @@ make_appimage() {
   local name="Fixture App" categories="Utility;" wmclass="fixture-app"
   local icon_key="fixture-icon" type=2 want_icon=1 want_desktop=1 extra_desktop=0
   local icon_b64="$FIXTURE_ICON_1PX" mime="" comment="" refuse_extract=0 version=""
+  local diricon_plain=0
 
   while (($#)); do
     case "$1" in
@@ -43,6 +44,9 @@ make_appimage() {
       --comment) comment="$2"; shift 2 ;;
       --refuse-extract) refuse_extract=1; shift ;;
       --version) version="$2"; shift 2 ;;
+      # .DirIcon as a plain regular file and no Icon= key, which is how a real
+      # bundle drives the fallback branch. It carries no extension at all.
+      --diricon-plain) diricon_plain=1; shift ;;
       *) echo "make_appimage: unknown option $1" >&2; return 1 ;;
     esac
   done
@@ -69,7 +73,7 @@ make_appimage() {
         [[ -n $comment ]] && printf 'Comment=%s\n' "$comment"
         [[ -n $version ]] && printf 'X-AppImage-Version=%s\n' "$version"
         [[ -n $wmclass ]] && printf 'StartupWMClass=%s\n' "$wmclass"
-        printf 'Icon=%s\n' "$icon_key"
+        ((diricon_plain)) || printf 'Icon=%s\n' "$icon_key"
         echo 'Type=Application'
         echo 'DESK'
       fi
@@ -78,10 +82,15 @@ make_appimage() {
         printf '  printf "[Desktop Entry]\\nName=Zzz Decoy\\n" >squashfs-root/zzz-decoy.desktop\n'
       fi
       if ((want_icon)); then
-        printf '  printf %s | base64 -d >squashfs-root/usr/share/icons/hicolor/256x256/apps/%s.png\n' \
-          "'$icon_b64'" "$icon_key"
-        # .DirIcon as a symlink, the way real bundles ship it.
-        printf '  ln -sf usr/share/icons/hicolor/256x256/apps/%s.png squashfs-root/.DirIcon\n' "$icon_key"
+        if ((diricon_plain)); then
+          # A regular file at squashfs-root/.DirIcon, with no extension.
+          printf '  printf %s | base64 -d >squashfs-root/.DirIcon\n' "'$icon_b64'"
+        else
+          printf '  printf %s | base64 -d >squashfs-root/usr/share/icons/hicolor/256x256/apps/%s.png\n' \
+            "'$icon_b64'" "$icon_key"
+          # .DirIcon as a symlink, the way real bundles ship it.
+          printf '  ln -sf usr/share/icons/hicolor/256x256/apps/%s.png squashfs-root/.DirIcon\n' "$icon_key"
+        fi
       fi
     fi
     echo '  exit 0'

@@ -55,6 +55,50 @@ The cost is that removal only understands launchers this tool wrote. That is
 acceptable here — it writes all of them, and the `Exec` marker still identifies
 them for `omarchy-remove-launcher-entry` routing.
 
+## Security model
+
+An AppImage's embedded `.desktop` file is attacker-controlled input: the user may
+have downloaded the bundle from anywhere. Everything read out of it — `Name`,
+`Comment`, `Categories`, `StartupWMClass`, `MimeType`, `Icon` — is treated as
+hostile and is escaped on the way into the generated launcher.
+
+Two layers stop desktop-entry injection, and both are load-bearing:
+
+- `desktop_value()` reads each key with `sed -n 's/^KEY=//p' | head -1`, so no
+  recovered value can contain a raw newline.
+- `desktop_string_escape()` escapes backslash first, then tab, CR, LF and a
+  leading space. Every value written to the launcher passes through it.
+
+Without these, a bundle shipping `Comment=hi<LF>Exec=curl … | sh` would inject a
+second `Exec=` key. They are copied verbatim from `omarchy-webapp-install`, which
+solves the same problem for pasted URLs — please don't simplify them.
+
+**Executing the bundle is deliberately trusted.** Reading metadata means running
+the AppImage's own runtime with `--appimage-extract`. That is not a weakness in
+this code: the user asked to install and run that binary, and it will run as them
+either way. It does mean a hostile bundle has code execution as the user *before*
+anything here parses its metadata, which bounds what the rest of this section can
+usefully defend against.
+
+**Nothing here runs as root.** The scripts contain no `sudo`. The
+`# omarchy:requires-sudo=true` marker on `omarchy-remove-launcher-entry` is
+dispatcher metadata used for the command listing; the actual caller runs it
+detached as the user with shell-quoted arguments, so the routing patch in
+`0001` does not create an escalation path.
+
+**Known and accepted:** a bundle can ship `.DirIcon` as a symlink pointing outside
+itself, so the icon copy will place any file the user can read into
+`~/.local/share/icons/hicolor/<size>/apps/<name>.<ext>` (`cp` preserves the source
+mode). This is not treated as a vulnerability because it grants nothing the
+bundle's own runtime did not already have. It is recorded here so it is a
+documented limitation rather than a surprise.
+
+Paths are constrained rather than sanitised where possible: the payload is always
+`~/Applications/$(basename …)`, so a crafted filename or URL cannot escape the
+directory; `require_plain_name` rejects `/` and control characters in the app
+name, which becomes a launcher filename; and the icon sweep on removal derives its
+glob from a name already reduced to `[[:alnum:]-]`.
+
 ## Expect pushback
 
 Omarchy is packages-first, and the counter-argument — "it's in the AUR, use
