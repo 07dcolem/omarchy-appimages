@@ -425,3 +425,21 @@ teardown() { harness_teardown; }
   run desktop-file-validate "$DESKTOP_DIR/Foo.desktop"
   [ "$status" -eq 0 ]
 }
+
+@test "install: a non-executable download still yields the bundle's metadata" {
+  # Browsers save AppImages without the executable bit. Extraction executes the
+  # bundle, so without chmod first the metadata is silently lost and the app is
+  # named after its filename.
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Real Name" \
+    --categories "Network;" --version "9.9"
+  chmod -x "$HOME/Downloads/Foo.AppImage"
+
+  run omarchy-appimage-install "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+  [[ $output != *"could not extract"* ]]
+
+  [ -f "$DESKTOP_DIR/Real Name.desktop" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Real Name.desktop" Categories)" = "Network;" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Real Name.desktop" X-AppImage-Version)" = "9.9" ]
+  [ -x "$APPS_DIR/Foo.AppImage" ]
+}

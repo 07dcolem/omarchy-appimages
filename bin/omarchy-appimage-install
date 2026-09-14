@@ -277,6 +277,12 @@ fi
 
 require_appimage "$SOURCE_FILE"
 
+# Reading the metadata means executing the bundle, and a browser saves downloads
+# without the executable bit. The payload is marked executable again after the
+# move; doing it here too is what makes metadata extraction work at all on a
+# freshly downloaded file.
+chmod +x "$SOURCE_FILE"
+
 # --- read the bundle's own metadata ---
 #
 # Full extract rather than a targeted pattern extract: .DirIcon is usually a
@@ -301,7 +307,8 @@ if ((APPIMAGE_TYPE == 2)); then
     # the degradation is otherwise silent and looks like the tool being dumb.
     echo -e "\e[33mWarning:\e[0m could not extract $(basename "$SOURCE_FILE") to read its metadata." >&2
     echo "         Falling back to the filename and a generic icon." >&2
-    echo "         If libfuse.so.2 is missing, install it and re-run to get the real name and icon." >&2
+    echo "         The bundle may be damaged, or its runtime may need libfuse.so.2" >&2
+    echo "         (omarchy pkg add fuse2). Re-run afterwards for the real name and icon." >&2
   fi
 
   if [[ -z $BUNDLED_DESKTOP && -d $WORKDIR/squashfs-root ]]; then
