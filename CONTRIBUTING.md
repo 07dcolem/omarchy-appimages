@@ -17,9 +17,15 @@ Tests use a throwaway `HOME` and do not touch the real `~/Applications` or deskt
 make test
 ```
 
-There is no `origin` remote yet. A later publish, only when asked, is:
+There is no `origin` remote yet. Do not publish with `gh repo create`. That would be a disconnected repository. When publishing is requested, fork the upstream project so GitHub keeps the fork relationship, then push this branch:
 
 ```bash
+gh repo fork kabe2007/omarchy-appimage-integration \
+  --clone=false --remote=false --fork-name omarchy-appimages
 git remote add origin git@github.com:07dcolem/omarchy-appimages.git
-# then, only when the human says so: gh repo create / git push -u origin plugin-v0.1
+git push -u origin plugin-v0.1
 ```
+
+`--fork-name` still records `07dcolem/omarchy-appimages` as a fork of `kabe2007/omarchy-appimage-integration`. The local `upstream` remote already points there, so do not let `gh repo fork` add or rename remotes.
+
+Keep `LICENSE`, `NOTICE`, and the README attribution block. Juan I. de Elizalde stays first on the copyright lines.

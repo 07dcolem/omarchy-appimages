@@ -6,7 +6,7 @@ Plugin id: `07dcolem.appimages`
 
 ## Install
 
-Once this repo is public:
+Once this repo is published as a fork of [kabe2007/omarchy-appimage-integration](https://github.com/kabe2007/omarchy-appimage-integration), named `07dcolem/omarchy-appimages`:
 
 ```bash
 omarchy plugin add https://github.com/07dcolem/omarchy-appimages.git --enable --yes
