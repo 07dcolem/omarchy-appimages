@@ -1,7 +1,5 @@
 # AppImages
 
-![AppImages](preview.jpg)
-
 Omarchy plugin that installs AppImages into the launcher: drop a file on the bar icon, pick one with Add, or use the CLI. It writes a normal XDG `.desktop` file, so Super+Space finds the app like anything else.
 
 Plugin id: `07dcolem.appimages`
