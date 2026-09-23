@@ -1,70 +1,72 @@
 # AppImages
 
-Omarchy shell plugin that installs, lists, and removes AppImages on this machine. It is not a Gear Lever clone, and it does not touch Flatpak. An installed app shows up in the Omarchy launcher because the plugin writes a normal XDG desktop file.
+Omarchy plugin that installs AppImages into the launcher: drop a file on the bar icon, pick one with Add, or use the CLI. It writes a normal XDG `.desktop` file, so Super+Space finds the app like anything else.
 
 Plugin id: `07dcolem.appimages`
 
-## Install
+Not Flatpak. Not a Gear Lever clone. v0.1 does not check for updates.
 
-Once this repo is published as a fork of [kabe2007/omarchy-appimage-integration](https://github.com/kabe2007/omarchy-appimage-integration), named `07dcolem/omarchy-appimages`:
+## Install
 
 ```bash
 omarchy plugin add https://github.com/07dcolem/omarchy-appimages.git --enable --yes
 omarchy bar put 07dcolem.appimages
 ```
 
-Today the checkout is local. Copy it into the directory Omarchy loads. Do not symlink the checkout into `~/.config/omarchy/plugins/`.
+The widget lands on the right side of the bar. If the icon is missing:
 
 ```bash
-rsync -a --delete --exclude .git \
-  ~/src/omarchy-appimages/ \
-  ~/.config/omarchy/plugins/07dcolem.appimages/
-omarchy plugin validate ~/.config/omarchy/plugins/07dcolem.appimages
-omarchy plugin enable 07dcolem.appimages
-omarchy bar put 07dcolem.appimages
+omarchy restart shell
+omarchy plugin list
 ```
 
-`omarchy plugin enable` records the plugin in `~/.config/omarchy/shell.json`. `omarchy bar put` places the widget. The manifest's default section is the right side of the bar. If the icon does not appear, `omarchy restart shell` reloads the shell. `omarchy plugin list` shows whether it is enabled.
+Do not symlink a checkout into `~/.config/omarchy/plugins/`. Omarchy rejects plugin trees that contain symlinks. For local development, copy the files — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Usage
 
-The bar shows an icon only. Hovering it says AppImages, and the icon is a drop target. Hold a file on it and the panel opens. Drop an `.AppImage` on the icon or on the panel, or use Add and pick a file. The confirm step shows the filename, the destination `~/Applications/<name>.AppImage`, and a sha256 when the hash finishes. Install moves the file. It does not copy it.
+- Hover the bar icon for the name. The icon is a drop target.
+- Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
+- Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
+- Install **moves** the file. It does not copy it.
+- Each row: open, or remove (launcher + icon + payload). Keep file drops the launcher and icon only.
+- Esc closes the panel. Enter launches a row, or confirms install.
 
-After that, Super+Space finds the app.
+## CLI
 
-Each row can open the app or remove it. Remove deletes the launcher, the icon, and the file in `~/Applications`. Keep file leaves the payload and still removes the launcher and icon.
-
-Esc closes the panel. Enter on a row launches that app. Enter on the confirm step installs.
-
-The command line does the same work. Pass a path and the tools stay non-interactive:
+Scripts live in the installed plugin. They stay non-interactive when you pass a path or name.
 
 ```bash
-~/.config/omarchy/plugins/07dcolem.appimages/bin/omarchy-appimage-install ~/Downloads/Example.AppImage
-~/.config/omarchy/plugins/07dcolem.appimages/bin/omarchy-appimage-list
-~/.config/omarchy/plugins/07dcolem.appimages/bin/omarchy-appimage-remove "Example"
+PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
+
+"$PLUGIN/bin/omarchy-appimage-install" ~/Downloads/Example.AppImage
+"$PLUGIN/bin/omarchy-appimage-list"
+"$PLUGIN/bin/omarchy-appimage-remove" Example
 ```
 
-`--keep-file` on remove leaves the payload. `--replace` on install upgrades a launcher that already uses that name.
+- `--replace` on install overwrites a launcher that already uses that name.
+- `--keep-file` on remove leaves the payload in `~/Applications`.
 
-## v0.1
+## Scope
 
-This release installs, lists, opens, and removes. It does not check for updates, watch GitHub or GitLab, keep older versions side by side, fetch in the background, or send update notifications.
+v0.1: install, list, open, remove.
+
+Not in this release: update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 
 ## Dependencies
 
-Running an AppImage needs FUSE. Type-2 bundles, which are almost all of them, need `libfuse.so.2` from `fuse2`. `fuse3` provides `fusermount3`.
+Most AppImages are type-2 and need `libfuse.so.2`:
 
 ```bash
 omarchy pkg add fuse2
 ```
 
-The installer reads the bundle's name, comment, icon, and categories by running its `--appimage-extract`. That step needs `libfuse.so.2` for a real AppImage. `squashfs-tools` provides `unsquashfs` if you want to inspect a bundle by hand:
+`fuse3` only gives `fusermount3`. Metadata extraction uses the bundle's `--appimage-extract`, which also wants `libfuse.so.2`. Optional, for inspecting a squashfs by hand:
 
 ```bash
 omarchy pkg add squashfs-tools
 ```
 
-Install still writes a launcher when FUSE is missing. The panel warns that starting the app may fail.
+A launcher can still be written without FUSE. Starting the app may then fail; the panel warns once.
 
 ## License
 
