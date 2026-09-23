@@ -1,9 +1,21 @@
 #!/bin/bash
 
+# Copyright (c) 2026 Juan I. de Elizalde
+
 # omarchy:summary=Install an AppImage and create a desktop launcher
 # omarchy:args=[path-or-url] [name] [--replace]
 
 set -e
+
+# The launcher's Exec must name this script's sibling by absolute path. The
+# plugin directory is not on $PATH, and a desktop file cannot depend on it.
+script_source="${BASH_SOURCE[0]}"
+while [[ -L $script_source ]]; do
+  script_dir=$(cd -P "$(dirname "$script_source")" && pwd)
+  script_source=$(readlink "$script_source")
+  [[ $script_source != /* ]] && script_source="$script_dir/$script_source"
+done
+LAUNCH_BIN="$(cd -P "$(dirname "$script_source")" && pwd)/omarchy-launch-appimage"
 
 APPIMAGE_DIR="$HOME/Applications"
 ICON_BASE="$HOME/.local/share/icons/hicolor"
@@ -452,7 +464,7 @@ fi
 
 # --- launcher ---
 
-EXEC_COMMAND="omarchy-launch-appimage $(desktop_exec_arg "$TARGET") %U"
+EXEC_COMMAND="$(desktop_exec_arg "$LAUNCH_BIN") $(desktop_exec_arg "$TARGET") %U"
 
 name_field=$(desktop_string_escape "$APP_NAME")
 comment_field=$(desktop_string_escape "$APP_COMMENT")

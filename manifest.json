@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "07dcolem.appimages",
+  "name": "AppImages",
+  "version": "0.1.0",
+  "author": "07dcolem",
+  "license": "MIT",
+  "description": "Install, list, and remove AppImages from the bar.",
+  "kinds": ["bar-widget", "panel"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "AppImages",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

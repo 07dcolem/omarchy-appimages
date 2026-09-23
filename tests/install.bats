@@ -25,7 +25,10 @@ teardown() { harness_teardown; }
   omarchy-appimage-install "$HOME/Downloads/Foo.AppImage"
 
   exec_line=$(desktop_key "$DESKTOP_DIR/Foo Bar.desktop" Exec)
-  [[ $exec_line == omarchy-launch-appimage\ \"* ]]
+  # Exec quotes the launch script next to the installer. The plugin bin is not
+  # on $PATH, so the desktop file cannot call a bare command name.
+  launch_bin="$(cd "$REPO_ROOT/bin" && pwd)/omarchy-launch-appimage"
+  [[ $exec_line == \"$launch_bin\"\ \"* ]]
 }
 
 @test "install: carries Categories and StartupWMClass from the bundle" {

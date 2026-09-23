@@ -111,7 +111,7 @@ DESK
 
   # Corrupt the Exec path. Removal must still find and delete the payload,
   # which it can only do by reading X-AppImage-Payload.
-  sed -i 's|^Exec=omarchy-launch-appimage "[^"]*"|Exec=omarchy-launch-appimage "/nonexistent/Decoy.AppImage"|' \
+  sed -i 's|^Exec=.*|Exec=omarchy-launch-appimage "/nonexistent/Decoy.AppImage"|' \
     "$DESKTOP_DIR/Foo.desktop"
 
   omarchy-appimage-remove "Foo"

@@ -1,118 +1,84 @@
-# AppImage integration for Omarchy
+# AppImages
 
-[![CI](https://github.com/kabe2007/omarchy-appimage-integration/actions/workflows/ci.yml/badge.svg)](https://github.com/kabe2007/omarchy-appimage-integration/actions/workflows/ci.yml)
+Omarchy shell plugin that installs, lists, and removes AppImages on this machine. It is not a Gear Lever clone, and it does not touch Flatpak. An installed app shows up in the Omarchy launcher because the plugin writes a normal XDG desktop file.
 
-Gives AppImages the same install / launch / remove treatment Omarchy already
-gives web apps and TUIs.
+Plugin id: `07dcolem.appimages`
 
-| Command | What it does |
-|---------|--------------|
-| `omarchy-appimage-install [path-or-url] [name] [--replace]` | Stage the payload, read the bundle's own metadata, write a launcher |
-| `omarchy-appimage-remove [name] [--keep-file]` | Remove launcher, icon and payload together |
-| `omarchy-launch-appimage <path> [args...]` | Thin exec wrapper; what the launcher's `Exec=` points at |
+## Install
 
-Run with no arguments, `omarchy-appimage-install` lists the AppImages sitting in
-`~/Downloads`, `~/Desktop` and `~`, newest first — type to narrow, Enter to pick.
-Choose "Enter a path or URL..." (or press Esc) to type one instead, which is also
-how you install from a URL. The name, comment, icon,
-categories, `StartupWMClass` and `MimeType` all come out of the AppImage itself, so
-unlike the web app and TUI installers it never asks you for an icon URL.
+Once this repo is public:
 
-## Upgrading
+```bash
+omarchy plugin add https://github.com/07dcolem/omarchy-appimages.git --enable --yes
+omarchy bar put 07dcolem.appimages
+```
 
-Installing an app that is already installed asks whether to replace it, naming
-both versions when the bundles declare `X-AppImage-Version`:
+Today the checkout is local. Copy it into the directory Omarchy loads. Do not symlink the checkout into `~/.config/omarchy/plugins/`.
 
-    Replace the installed "Ledger Wallet" 4.17.1 with 4.19.0?
+```bash
+rsync -a --delete --exclude .git \
+  ~/src/omarchy-appimages/ \
+  ~/.config/omarchy/plugins/07dcolem.appimages/
+omarchy plugin validate ~/.config/omarchy/plugins/07dcolem.appimages
+omarchy plugin enable 07dcolem.appimages
+omarchy bar put 07dcolem.appimages
+```
 
-Answering yes repoints the launcher and **deletes the previous payload**, which
-matters because a new version usually ships under a different filename — without
-that, the old one is orphaned in `~/Applications` forever.
+`omarchy plugin enable` records the plugin in `~/.config/omarchy/shell.json`. `omarchy bar put` places the widget. The manifest's default section is the right side of the bar. If the icon does not appear, `omarchy restart shell` reloads the shell. `omarchy plugin list` shows whether it is enabled.
 
-Non-interactively the collision is refused unless you pass `--replace`, so a
-script never silently overwrites an installed app.
+## Usage
 
-## Prerequisite: FUSE 2
+The bar icon is labeled AppImages and is a drop target. Hold a file on it and the panel opens. Drop an `.AppImage` on the icon or on the panel, or use Add and pick a file. The confirm step shows the filename, the destination `~/Applications/<name>.AppImage`, and a sha256 when the hash finishes. Install moves the file. It does not copy it.
 
-Omarchy does not install `fuse2`, and type-2 AppImages — essentially all of them —
-need it:
+After that, Super+Space finds the app.
+
+Each row can open the app or remove it. Remove deletes the launcher, the icon, and the file in `~/Applications`. Keep file leaves the payload and still removes the launcher and icon.
+
+Esc closes the panel. Enter on a row launches that app. Enter on the confirm step installs.
+
+The command line does the same work. Pass a path and the tools stay non-interactive:
+
+```bash
+~/.config/omarchy/plugins/07dcolem.appimages/bin/omarchy-appimage-install ~/Downloads/Example.AppImage
+~/.config/omarchy/plugins/07dcolem.appimages/bin/omarchy-appimage-list
+~/.config/omarchy/plugins/07dcolem.appimages/bin/omarchy-appimage-remove "Example"
+```
+
+`--keep-file` on remove leaves the payload. `--replace` on install upgrades a launcher that already uses that name.
+
+## v0.1
+
+This release installs, lists, opens, and removes. It does not check for updates, watch GitHub or GitLab, keep older versions side by side, fetch in the background, or send update notifications.
+
+## Dependencies
+
+Running an AppImage needs FUSE. Type-2 bundles, which are almost all of them, need `libfuse.so.2` from `fuse2`. `fuse3` provides `fusermount3`.
 
 ```bash
 omarchy pkg add fuse2
 ```
 
-Install still works without it and writes a valid launcher; the app just will not
-start until FUSE is present. The install command warns when `libfuse.so.2` is
-missing.
-
-## Install
+The installer reads the bundle's name, comment, icon, and categories by running its `--appimage-extract`. That step needs `libfuse.so.2` for a real AppImage. `squashfs-tools` provides `unsquashfs` if you want to inspect a bundle by hand:
 
 ```bash
-make install
+omarchy pkg add squashfs-tools
 ```
 
-Symlinks the three scripts into `~/.local/bin` (make sure that is on your `$PATH`)
-and adds **Install → AppImage** and **Remove → AppImage** rows to the Omarchy menu.
-`make uninstall` reverses both.
-
-The menu rows go into `~/.config/omarchy/extensions/omarchy-menu.jsonc`, which
-survives `omarchy update`. They are wrapped in marker comments, so adding and
-removing them leaves the rest of that file byte-identical. Use `NO_MENU=1` to skip
-the menu entirely, or `BINDIR=` / `MENU_FILE=` to point somewhere else.
-
-Nothing here writes to `/usr/share/omarchy` — that tree is owned by the `omarchy`
-package and is overwritten on update. That is also why `omarchy appimage install`
-does not work as a dispatcher route: the dispatcher globs its own package-owned
-`bin/`, not `$PATH`. See [`upstream/`](upstream/) for the patches that would change
-that.
-
-## Where things go
-
-| What | Where |
-|------|-------|
-| Payload | `~/Applications/` (moved, not copied) |
-| Icon | `~/.local/share/icons/hicolor/<size>/apps/`, by the icon's real resolution |
-| Launcher | `~/.local/share/applications/<Name>.desktop` |
-
-Generated launchers carry an `X-AppImage-Payload` key naming the payload. Removal
-reads that rather than parsing the path back out of `Exec`, where two layers of
-escaping would have to be undone in order.
-
-Installing **moves** the `.AppImage` rather than copying it, so the payload has
-exactly one home and removal can delete it unambiguously. The move is reported on
-stdout.
-
-## Development
-
-```bash
-omarchy pkg add shellcheck shfmt bats
-make lint
-make test
-```
-
-The suite needs neither FUSE nor network access. Fixture AppImages are tiny
-compiled ELF stubs — a fake AppImage has to be a real ELF, because the type magic
-lives at offset 8, which inside a `#!` script falls in the middle of the
-interpreter path. Every test runs against a throwaway `HOME` with a stubbed
-`PATH`, and teardown fails the test if anything escaped into the real home
-directory.
-
-For the end-to-end checklist against a live system, run `/verify-appimage` in
-Claude Code.
-
-## Known gaps
-
-- **Self-updating AppImages** that rename themselves in place break the launcher's
-  hardcoded `Exec` path. The fix, if it ever bites, is a stable symlink.
-- **No update command.** Re-running install against a new download replaces the
-  launcher. `X-AppImage-Version` is recorded and used when replacing an install,
-  but nothing checks upstream for a newer build.
-- **Type-1 AppImages** have no `--appimage-extract`, so they get the filename and a
-  generic icon.
-- **Menu row ordering** puts the AppImage rows at the bottom of Install and Remove
-  rather than beside Web App and TUI. User-added ids are appended after all default
-  ids and cannot be reordered from the extension file.
+Install still writes a launcher when FUSE is missing. The panel warns that starting the app may fail.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Attribution
+
+Install, launch, and remove logic in bin/ is adapted from
+https://github.com/kabe2007/omarchy-appimage-integration
+by Juan I. de Elizalde (GitHub: kabe2007), licensed under the MIT License.
+
+Copyright (c) 2026 Juan I. de Elizalde
+Copyright (c) 2026 07dcolem
+
+This plugin is not affiliated with or endorsed by Juan I. de Elizalde.
+The MIT license text is in LICENSE. That notice and the copyright lines
+above must be preserved in copies and substantial portions of this software.

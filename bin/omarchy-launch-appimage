@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Copyright (c) 2026 Juan I. de Elizalde
+
 # omarchy:summary=Launch an installed AppImage
 # omarchy:args=<path-to-appimage> [args...]
 

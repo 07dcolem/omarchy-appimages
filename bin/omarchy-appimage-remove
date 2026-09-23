@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Copyright (c) 2026 Juan I. de Elizalde
+
 # omarchy:summary=Remove an AppImage desktop launcher
 # omarchy:args=[name] [--keep-file]
 

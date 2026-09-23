@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Copyright (c) 2026 Juan I. de Elizalde
+
 # Add or remove the AppImage rows in an Omarchy menu extension file.
 #
 # Usage: omarchy-appimage-menu add|remove [menu-file]

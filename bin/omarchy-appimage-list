@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# Copyright (c) 2026 Juan I. de Elizalde
+# Copyright (c) 2026 07dcolem
+#
+# Prints {"fuse":bool,"apps":[...]} for launchers written by omarchy-appimage-install.
+# A row qualifies when Exec names omarchy-launch-appimage and X-AppImage-Payload
+# is set. desktop_payload_path stays in step with the copy in omarchy-appimage-remove.
+
+set -e
+
+ICON_BASE="$HOME/.local/share/icons/hicolor"
+DESKTOP_DIR="$HOME/.local/share/applications"
+
+desktop_unescape() {
+  local value="$1"
+  [[ $value == "\\s"* ]] && value=" ${value#\\s}"
+  value=${value//\\n/$'\n'}
+  value=${value//\\t/$'\t'}
+  value=${value//\\r/$'\r'}
+  printf '%s' "${value//\\\\/\\}"
+}
+
+desktop_payload_path() {
+  local payload
+  payload=$(sed -n 's/^X-AppImage-Payload=//p' "$1" | head -1)
+  [[ $payload == "\\s"* ]] && payload=" ${payload#\\s}"
+  printf '%s' "${payload//\\\\/\\}"
+}
+
+resolve_icon() {
+  local file="$1" icon found
+  icon=$(desktop_unescape "$(sed -n 's/^Icon=//p' "$file" | head -1)")
+  [[ -n $icon && $icon != application-x-executable ]] || return 0
+  if [[ $icon == /* ]]; then
+    [[ -f $icon ]] && printf '%s' "$icon"
+    return 0
+  fi
+  found=$(find "$ICON_BASE" -type f -name "$icon.*" -print -quit 2>/dev/null || true)
+  [[ -n $found ]] && printf '%s' "$found"
+}
+
+command -v jq >/dev/null || {
+  echo "jq is required" >&2
+  exit 1
+}
+
+rows=$(mktemp)
+trap 'rm -f "$rows"' EXIT
+
+if [[ -d $DESKTOP_DIR ]]; then
+  while IFS= read -r -d '' file; do
+    grep -q 'omarchy-launch-appimage' "$file" || continue
+    payload=$(desktop_payload_path "$file")
+    [[ -n $payload ]] || continue
+    name=$(basename "${file%.desktop}")
+    comment=$(desktop_unescape "$(sed -n 's/^Comment=//p' "$file" | head -1)")
+    icon=$(resolve_icon "$file")
+    jq -nc \
+      --arg name "$name" \
+      --arg comment "$comment" \
+      --arg payload "$payload" \
+      --arg desktop "$file" \
+      --arg icon "$icon" \
+      '{name:$name,comment:$comment,payload:$payload,desktop:$desktop,icon:$icon}' >>"$rows"
+  done < <(find "$DESKTOP_DIR" -name '*.desktop' -print0 2>/dev/null)
+fi
+
+if [[ -s $rows ]]; then
+  apps=$(jq -s '.' "$rows")
+else
+  apps='[]'
+fi
+
+fuse=true
+if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
+  fuse=false
+fi
+
+jq -nc --argjson fuse "$fuse" --argjson apps "$apps" '{fuse:$fuse,apps:$apps}'
