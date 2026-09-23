@@ -1,5 +1,7 @@
 # AppImages
 
+![AppImages](preview.jpg)
+
 Omarchy plugin that installs AppImages into the launcher: drop a file on the bar icon, pick one with Add, or use the CLI. It writes a normal XDG `.desktop` file, so Super+Space finds the app like anything else.
 
 Plugin id: `07dcolem.appimages`
@@ -21,6 +23,16 @@ omarchy plugin list
 ```
 
 Do not symlink a checkout into `~/.config/omarchy/plugins/`. Omarchy rejects plugin trees that contain symlinks. For local development, copy the files — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Remove
+
+```bash
+omarchy plugin remove 07dcolem.appimages
+```
+
+That unloads the plugin and removes `~/.config/omarchy/plugins/07dcolem.appimages/`. An install from `omarchy plugin add` is deleted. A plain copy, with no `.git` directory, is moved aside to a hidden backup in that same plugins folder.
+
+AppImages already in `~/Applications`, their icons, and their `.desktop` launchers stay. Those launchers run this plugin's `omarchy-launch-appimage`, so remove each app from the panel first if you want it gone. Putting the plugin back makes the existing launchers work again.
 
 ## Usage
 
