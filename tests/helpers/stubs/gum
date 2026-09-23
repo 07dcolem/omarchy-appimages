@@ -31,6 +31,8 @@ done
 
 if [[ $prompt == Name* ]]; then
   printf '%s\n' "${GUM_NAME-$value}"
+elif [[ $prompt == SHA-256* ]]; then
+  printf '%s\n' "${GUM_SHA256-$value}"
 else
   printf '%s\n' "${GUM_INPUT-$value}"
 fi

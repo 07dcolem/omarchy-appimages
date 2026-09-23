@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Juan I. de Elizalde
 
 # omarchy:summary=Install an AppImage and create a desktop launcher
-# omarchy:args=[path-or-url] [name] [--replace]
+# omarchy:args=[path-or-url] [name] [--replace] [--sha256=<hex>] [--confirm-exec]
 
 set -e
 
@@ -20,6 +20,11 @@ LAUNCH_BIN="$(cd -P "$(dirname "$script_source")" && pwd)/omarchy-launch-appimag
 APPIMAGE_DIR="$HOME/Applications"
 ICON_BASE="$HOME/.local/share/icons/hicolor"
 DESKTOP_DIR="$HOME/.local/share/applications"
+
+# 500 MiB. curl refuses a larger Content-Length and stops a body past the cap.
+URL_MAX_BYTES=524288000
+URL_CONNECT_TIMEOUT=15
+URL_MAX_TIME=120
 
 # Helpers below are copied from omarchy-webapp-install rather than sourced.
 # /usr/share/omarchy/bin has no shared library -- webapp-install and tui-install
@@ -187,6 +192,75 @@ desktop_value() {
   sed -n "s/^$1=//p" "$BUNDLED_DESKTOP" | head -1
 }
 
+url_scheme() {
+  # Schemes are case-insensitive. Empty output means a filesystem path.
+  local source="$1"
+  if [[ $source =~ ^([a-zA-Z][a-zA-Z0-9+.-]*):// ]]; then
+    printf '%s' "${BASH_REMATCH[1],,}"
+  fi
+}
+
+require_sha256() {
+  # URL installs refuse to download until this is 64 lowercase hex digits.
+  # There is no flag that skips the check.
+  local value="$1"
+  if [[ -z $value ]]; then
+    echo "A SHA-256 digest is required to install from a URL." >&2
+    echo "Pass --sha256=<64 lowercase hex digits> or set OMARCHY_APPIMAGE_SHA256." >&2
+    exit 1
+  fi
+  if [[ ! $value =~ ^[0-9a-f]{64}$ ]]; then
+    echo "SHA-256 must be 64 lowercase hex digits (got ${#value} characters)." >&2
+    exit 1
+  fi
+}
+
+sha256_matches() {
+  # Both sides must be the whole digest: same length, lowercase hex, then equal.
+  # A prefix, a different case, or a glob metacharacter does not match.
+  local expected="$1" actual="$2"
+  [[ ${#expected} -eq 64 && ${#actual} -eq 64 ]] || return 1
+  [[ $expected =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ $actual =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ $expected == "$actual" ]]
+}
+
+require_url_filename() {
+  local name="$1"
+  if [[ -z $name || $name == "." || $name == ".." || $name == */* || $name == *[$'\t\n\r']* ]]; then
+    echo "Could not derive a safe filename from the URL." >&2
+    exit 1
+  fi
+}
+
+make_secure_staging() {
+  # mktemp names are unpredictable. umask 077 and a 0700 directory keep the
+  # partial download private until it is verified and installed.
+  local old_umask
+  old_umask=$(umask)
+  umask 077
+  STAGE_DIR=$(mktemp -d "$APPIMAGE_DIR/.download.XXXXXX")
+  STAGING=$(mktemp "$STAGE_DIR/payload.XXXXXX")
+  umask "$old_umask"
+}
+
+confirm_url_exec() {
+  # --appimage-extract executes the payload. Ask before that first run.
+  # The later replace prompt is a separate question and still happens.
+  local bytes="$1" digest="$2" base
+  base=$(basename "$TARGET")
+  if [[ $INTERACTIVE == true ]]; then
+    if ! gum confirm "Execute once to read metadata? ${SOURCE} -> ${base} (${bytes} bytes) sha256 ${digest}"; then
+      echo "Refusing to execute the downloaded AppImage." >&2
+      exit 1
+    fi
+  elif [[ $CONFIRM_EXEC != true ]]; then
+    echo "Refusing to execute a downloaded AppImage without --confirm-exec." >&2
+    echo "The digest matched. Re-run with --confirm-exec to allow one metadata read." >&2
+    exit 1
+  fi
+}
+
 # --- preflight ---
 
 if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
@@ -197,15 +271,34 @@ fi
 # --- input ---
 
 REPLACE=false
+CONFIRM_EXEC=false
+SHA_FROM_CLI=false
+SHA256_ARG=""
 ARGS=()
 for arg in "$@"; do
-  if [[ $arg == "--replace" ]]; then
-    REPLACE=true
-  else
-    ARGS+=("$arg")
-  fi
+  case $arg in
+  --replace) REPLACE=true ;;
+  --confirm-exec) CONFIRM_EXEC=true ;;
+  --sha256=*)
+    SHA256_ARG="${arg#--sha256=}"
+    SHA_FROM_CLI=true
+    ;;
+  --sha256)
+    echo "Use --sha256=<64 lowercase hex digits>." >&2
+    exit 1
+    ;;
+  *) ARGS+=("$arg") ;;
+  esac
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
+
+if [[ $SHA_FROM_CLI == true ]]; then
+  EXPECTED_SHA=$SHA256_ARG
+elif [[ -n ${OMARCHY_APPIMAGE_SHA256-} ]]; then
+  EXPECTED_SHA=$OMARCHY_APPIMAGE_SHA256
+else
+  EXPECTED_SHA=""
+fi
 
 if (($# == 0)); then
   echo -e "\e[32mLet's install an AppImage you can start with the app launcher.\n\e[0m"
@@ -256,21 +349,71 @@ mkdir -p "$APPIMAGE_DIR" "$ICON_BASE" "$DESKTOP_DIR"
 # Everything that can refuse the install is evaluated before the payload is
 # moved, so a rejected install leaves the user's file where they left it.
 STAGING=""
+STAGE_DIR=""
 WORKDIR=""
 cleanup() {
   [[ -n $STAGING && -e $STAGING ]] && rm -f "$STAGING"
+  if [[ -n $STAGE_DIR && $STAGE_DIR == "$APPIMAGE_DIR"/.download.* && -d $STAGE_DIR ]]; then
+    rm -rf "$STAGE_DIR"
+  fi
   [[ -n $WORKDIR && -d $WORKDIR ]] && rm -rf "$WORKDIR"
   return 0
 }
 trap cleanup EXIT
 
-if [[ $SOURCE =~ ^https?:// ]]; then
+scheme=$(url_scheme "$SOURCE")
+if [[ -n $scheme ]]; then
+  if [[ $scheme != https ]]; then
+    echo "Only https:// URLs can be installed." >&2
+    echo "Refusing: $SOURCE" >&2
+    exit 1
+  fi
+
   FILENAME=$(basename "${SOURCE%%\?*}")
   [[ $FILENAME == *.AppImage ]] || FILENAME="$FILENAME.AppImage"
+  require_url_filename "$FILENAME"
   TARGET="$APPIMAGE_DIR/$FILENAME"
-  STAGING="$APPIMAGE_DIR/.$FILENAME.download.$$"
+
+  if [[ -z $EXPECTED_SHA && $INTERACTIVE == true ]]; then
+    if ! EXPECTED_SHA=$(gum input --prompt "SHA-256> " \
+      --placeholder "64 lowercase hex digits"); then
+      EXPECTED_SHA=""
+    fi
+  fi
+  require_sha256 "$EXPECTED_SHA"
+
+  make_secure_staging
   echo "Downloading $FILENAME..."
-  curl -fL --progress-bar -o "$STAGING" "$SOURCE"
+  # HTTPS only, including redirects. Caps: 15s to connect, 120s total, 500 MiB.
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --tlsv1.2 \
+    --connect-timeout "$URL_CONNECT_TIMEOUT" \
+    --max-time "$URL_MAX_TIME" \
+    --max-filesize "$URL_MAX_BYTES" \
+    --progress-bar \
+    -o "$STAGING" \
+    -- \
+    "$SOURCE"
+
+  ACTUAL_SHA=$(sha256sum -- "$STAGING") || exit 1
+  ACTUAL_SHA=${ACTUAL_SHA%% *}
+  if ! sha256_matches "$EXPECTED_SHA" "$ACTUAL_SHA"; then
+    rm -f "$STAGING"
+    STAGING=""
+    if [[ -n $STAGE_DIR && $STAGE_DIR == "$APPIMAGE_DIR"/.download.* ]]; then
+      rm -rf "$STAGE_DIR"
+    fi
+    STAGE_DIR=""
+    echo "SHA-256 mismatch; the download was deleted and will not be executed." >&2
+    echo "Expected: $EXPECTED_SHA" >&2
+    echo "Got:      $ACTUAL_SHA" >&2
+    exit 1
+  fi
+
   SOURCE_FILE="$STAGING"
   DOWNLOADED=true
 else
@@ -292,10 +435,14 @@ fi
 
 require_appimage "$SOURCE_FILE"
 
-# Reading the metadata means executing the bundle, and a browser saves downloads
-# without the executable bit. The payload is marked executable again after the
-# move; doing it here too is what makes metadata extraction work at all on a
-# freshly downloaded file.
+# Reading the metadata means executing the bundle. A URL download is not marked
+# executable, and --appimage-extract does not run, until the digest has matched
+# and execution is confirmed. A local file is marked here: browsers save
+# downloads without the executable bit, and extraction needs it.
+if [[ $DOWNLOADED == true ]]; then
+  confirm_url_exec "$(stat -c '%s' "$SOURCE_FILE")" "$ACTUAL_SHA"
+fi
+
 chmod +x "$SOURCE_FILE"
 
 # --- read the bundle's own metadata ---
@@ -408,6 +555,10 @@ else
   fi
   mv "$STAGING" "$TARGET"
   STAGING=""
+  if [[ -n $STAGE_DIR && $STAGE_DIR == "$APPIMAGE_DIR"/.download.* ]]; then
+    rm -rf "$STAGE_DIR"
+    STAGE_DIR=""
+  fi
   if [[ $DOWNLOADED == true ]]; then
     echo "Downloaded to $TARGET"
   else

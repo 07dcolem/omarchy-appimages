@@ -63,7 +63,7 @@ upstreamable. Duplication between the three scripts is correct here.
 |------|--------|
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | Written at runtime by `make install`, not by the repo. Marker-delimited block appended; everything else left untouched |
 
-The repo is new, so there is nothing else to modify. `CLAUDE.md` already records
+The repo is new, so there is nothing else to modify. `docs/development.md` records
 the conventions this plan follows.
 
 ## Implementation Steps

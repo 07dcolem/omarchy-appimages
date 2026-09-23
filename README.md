@@ -4,7 +4,7 @@ Omarchy plugin that installs AppImages into the launcher: drop a file on the bar
 
 Plugin id: `07dcolem.appimages`
 
-Not Flatpak. Not a Gear Lever clone. v0.1 does not check for updates.
+Not Flatpak. Not a Gear Lever clone. v0.1.1 does not check for updates.
 
 ## Install
 
@@ -49,16 +49,25 @@ Scripts live in the installed plugin. They stay non-interactive when you pass a 
 PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 "$PLUGIN/bin/omarchy-appimage-install" ~/Downloads/Example.AppImage
+"$PLUGIN/bin/omarchy-appimage-install" \
+  --sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --confirm-exec \
+  https://example.com/Example.AppImage
 "$PLUGIN/bin/omarchy-appimage-list"
 "$PLUGIN/bin/omarchy-appimage-remove" Example
 ```
 
 - `--replace` on install overwrites a launcher that already uses that name.
 - `--keep-file` on remove leaves the payload in `~/Applications`.
+- A URL install accepts only `https://`. `http://` and any other scheme are rejected, and redirects off HTTPS are refused.
+- The expected SHA-256 is `--sha256=<64 lowercase hex>` or `OMARCHY_APPIMAGE_SHA256`. It is checked before the bundle is executed. A mismatch deletes the download.
+- Non-interactive URL installs also require `--confirm-exec` before the file is marked executable or `--appimage-extract` runs. The interactive CLI asks instead, showing the URL, destination name, size, and digest.
+- Downloads stop after 15 seconds to connect, 120 seconds overall, or 500 MiB.
+- The panel, the bar drop target, and Add install a local `.AppImage` only. They do not download a URL.
 
 ## Scope
 
-v0.1: install, list, open, remove.
+v0.1.1: install, list, open, remove. URL installs are https-only and require a SHA-256.
 
 Not in this release: update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 

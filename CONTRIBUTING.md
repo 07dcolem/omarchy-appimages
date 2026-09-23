@@ -17,6 +17,8 @@ Tests use a throwaway `HOME` and do not touch the real `~/Applications` or deskt
 make test
 ```
 
+Bash house style, the URL install rules, and a manual verification checklist are in [docs/development.md](docs/development.md).
+
 There is no `origin` remote yet. Do not publish with `gh repo create`. That would be a disconnected repository. When publishing is requested, fork the upstream project so GitHub keeps the fork relationship, then push this branch:
 
 ```bash

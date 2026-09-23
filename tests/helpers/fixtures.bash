@@ -61,6 +61,7 @@ make_appimage() {
 
   {
     echo '#!/bin/bash'
+    echo 'printf "%s\n" "$*" >>"${APPIMAGE_EXEC_LOG:-/dev/null}"'
     echo 'if [[ ${1-} == "--appimage-extract" ]]; then'
     if ((type == 1)) || ((refuse_extract)); then
       # Type-1 bundles have no --appimage-extract at all; --refuse-extract fakes

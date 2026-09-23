@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "07dcolem.appimages",
   "name": "AppImages",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "07dcolem",
   "license": "MIT",
   "description": "Install, list, and remove AppImages from the bar.",

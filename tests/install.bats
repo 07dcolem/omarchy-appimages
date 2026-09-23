@@ -151,18 +151,142 @@ teardown() { harness_teardown; }
 
 @test "install: URL strips the query string and appends .AppImage" {
   make_appimage "$TESTROOT/remote-payload" --name "Remote App"
+  sha=$(sha256sum -- "$TESTROOT/remote-payload" | awk 'NR==1 { print $1 }')
   CURL_FIXTURE="$TESTROOT/remote-payload" \
-    omarchy-appimage-install "https://example.com/Downloads/Bar?token=abc123"
+    omarchy-appimage-install --sha256="$sha" --confirm-exec \
+    "https://example.com/Downloads/Bar?token=abc123"
 
   [ -x "$APPS_DIR/Bar.AppImage" ]
   [ -f "$DESKTOP_DIR/Remote App.desktop" ]
 }
 
 @test "install: a failed download leaves nothing at the final payload path" {
-  run env CURL_FAIL=1 omarchy-appimage-install "https://example.com/Bar.AppImage"
+  sha=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  run env CURL_FAIL=1 omarchy-appimage-install --sha256="$sha" --confirm-exec \
+    "https://example.com/Bar.AppImage"
   [ "$status" -ne 0 ]
   [ ! -e "$APPS_DIR/Bar.AppImage" ]
   [ -z "$(ls -A "$APPS_DIR")" ]
+}
+
+@test "install: rejects non-https URLs before downloading" {
+  sha=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  for url in \
+    "http://example.com/Bar.AppImage" \
+    "HTTP://example.com/Bar.AppImage" \
+    "ftp://example.com/Bar.AppImage"; do
+    run omarchy-appimage-install "$url" --sha256="$sha" --confirm-exec
+    [ "$status" -ne 0 ]
+    [[ $output == *"https://"* ]]
+  done
+  ! stub_called curl
+  [ -z "$(ls -A "$APPS_DIR")" ]
+}
+
+@test "install: rejects an https URL without a digest" {
+  run omarchy-appimage-install --confirm-exec "https://example.com/Bar.AppImage"
+  [ "$status" -ne 0 ]
+  [[ $output == *"SHA-256"* ]]
+  ! stub_called curl
+
+  run omarchy-appimage-install --confirm-exec --sha256=abcd \
+    "https://example.com/Bar.AppImage"
+  [ "$status" -ne 0 ]
+  [[ $output == *"lowercase"* ]]
+  ! stub_called curl
+}
+
+@test "install: rejects a URL whose digest does not match" {
+  make_appimage "$TESTROOT/remote-payload" --name "Remote App"
+  sha=$(sha256sum -- "$TESTROOT/remote-payload" | awk 'NR==1 { print $1 }')
+  bad=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  [ "$bad" != "$sha" ]
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+
+  run env CURL_FIXTURE="$TESTROOT/remote-payload" \
+    omarchy-appimage-install --sha256="$bad" --confirm-exec \
+    "https://example.com/Bar.AppImage"
+  [ "$status" -ne 0 ]
+  [[ $output == *"mismatch"* ]]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ ! -e "$APPS_DIR/Bar.AppImage" ]
+  [ -z "$(ls -A "$APPS_DIR")" ]
+}
+
+@test "install: URL with a matching digest does not execute before confirm" {
+  make_appimage "$TESTROOT/remote-payload" --name "Remote App"
+  sha=$(sha256sum -- "$TESTROOT/remote-payload" | awk 'NR==1 { print $1 }')
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+
+  run env CURL_FIXTURE="$TESTROOT/remote-payload" \
+    omarchy-appimage-install --sha256="$sha" \
+    "https://example.com/Downloads/Bar.AppImage"
+  [ "$status" -ne 0 ]
+  [[ $output == *"--confirm-exec"* ]]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ ! -e "$APPS_DIR/Bar.AppImage" ]
+  [ -z "$(ls -A "$APPS_DIR")" ]
+  [[ $output != *"You can now find"* ]]
+
+  : >"$APPIMAGE_EXEC_LOG"
+  run env CURL_FIXTURE="$TESTROOT/remote-payload" \
+    omarchy-appimage-install --sha256="$sha" --confirm-exec \
+    "https://example.com/Downloads/Bar.AppImage"
+  [ "$status" -eq 0 ]
+  [ -x "$APPS_DIR/Bar.AppImage" ]
+  [ -f "$DESKTOP_DIR/Remote App.desktop" ]
+  [[ $(cat "$APPIMAGE_EXEC_LOG") == *"--appimage-extract"* ]]
+
+  log=$(stub_log_for curl)
+  [[ $log == *"--fail --location --proto =https --proto-redir =https --tlsv1.2 --connect-timeout 15 --max-time 120 --max-filesize 524288000"* ]]
+  [[ $log == *"-o "* ]]
+}
+
+@test "install: OMARCHY_APPIMAGE_SHA256 satisfies the digest requirement" {
+  make_appimage "$TESTROOT/remote-payload" --name "Remote App"
+  sha=$(sha256sum -- "$TESTROOT/remote-payload" | awk 'NR==1 { print $1 }')
+  CURL_FIXTURE="$TESTROOT/remote-payload" \
+    OMARCHY_APPIMAGE_SHA256="$sha" \
+    run omarchy-appimage-install --confirm-exec "https://example.com/Env.AppImage"
+  [ "$status" -eq 0 ]
+  [ -x "$APPS_DIR/Env.AppImage" ]
+  [ -f "$DESKTOP_DIR/Remote App.desktop" ]
+}
+
+@test "install: interactive URL install asks for the digest and confirms before exec" {
+  make_appimage "$TESTROOT/remote-payload" --name "Remote App"
+  sha=$(sha256sum -- "$TESTROOT/remote-payload" | awk 'NR==1 { print $1 }')
+  bytes=$(stat -c '%s' "$TESTROOT/remote-payload")
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+
+  CURL_FIXTURE="$TESTROOT/remote-payload" \
+    GUM_INPUT="https://example.com/Downloads/Bar.AppImage" \
+    GUM_SHA256="$sha" \
+    GUM_CONFIRM=no \
+    run omarchy-appimage-install
+  [ "$status" -ne 0 ]
+  [[ $output == *"Refusing to execute"* ]]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ -z "$(ls -A "$APPS_DIR")" ]
+  offered=$(stub_log_for gum)
+  [[ $offered == *"SHA-256"* ]]
+  [[ $offered == *"https://example.com/Downloads/Bar.AppImage"* ]]
+  [[ $offered == *"Bar.AppImage"* ]]
+  [[ $offered == *"(${bytes} bytes)"* ]]
+  [[ $offered == *"sha256 ${sha}"* ]]
+
+  : >"$APPIMAGE_EXEC_LOG"
+  CURL_FIXTURE="$TESTROOT/remote-payload" \
+    GUM_INPUT="https://example.com/Downloads/Bar.AppImage" \
+    GUM_SHA256="$sha" \
+    GUM_CONFIRM=yes \
+    run omarchy-appimage-install
+  [ "$status" -eq 0 ]
+  [ -f "$DESKTOP_DIR/Remote App.desktop" ]
+  [[ $(cat "$APPIMAGE_EXEC_LOG") == *"--appimage-extract"* ]]
 }
 
 @test "install: cross-filesystem source still lands the payload whole" {

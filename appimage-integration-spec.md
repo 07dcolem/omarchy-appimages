@@ -557,9 +557,11 @@ After implementing on the main install:
 omarchy pkg add fuse2
 ldconfig -p | grep libfuse.so.2
 
-# 2. Install from a local file and from a URL
+# 2. Install from a local file and from an https URL.
+#    http is rejected. The digest is checked before the bundle is executed.
 omarchy-appimage-install ~/Downloads/Foo.AppImage
-omarchy-appimage-install https://example.com/Bar.AppImage "Bar"
+omarchy-appimage-install --sha256=<64 lowercase hex> --confirm-exec \
+  https://example.com/Bar.AppImage "Bar"
 
 # 3. Launcher is well-formed and the escaping survived
 desktop-file-validate ~/.local/share/applications/Foo.desktop
