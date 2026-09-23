@@ -28,7 +28,7 @@ omarchy bar put 07dcolem.appimages
 
 ## Usage
 
-The bar icon is labeled AppImages and is a drop target. Hold a file on it and the panel opens. Drop an `.AppImage` on the icon or on the panel, or use Add and pick a file. The confirm step shows the filename, the destination `~/Applications/<name>.AppImage`, and a sha256 when the hash finishes. Install moves the file. It does not copy it.
+The bar shows an icon only. Hovering it says AppImages, and the icon is a drop target. Hold a file on it and the panel opens. Drop an `.AppImage` on the icon or on the panel, or use Add and pick a file. The confirm step shows the filename, the destination `~/Applications/<name>.AppImage`, and a sha256 when the hash finishes. Install moves the file. It does not copy it.
 
 After that, Super+Space finds the app.
 

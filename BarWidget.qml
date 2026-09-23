@@ -13,26 +13,39 @@ BarWidget {
 
   readonly property string pluginId: "07dcolem.appimages"
   readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property bool showLabel: !(bar && bar.vertical)
-  readonly property int labelWidth: showLabel ? Style.space(78) : 0
-  readonly property int contentWidth: Style.bar.iconCanvas + labelWidth + (showLabel ? Style.space(6) : 0)
-  readonly property int barSlot: contentWidth + Style.space(10)
+  readonly property int barSlot: Style.bar.iconSlot
 
   property bool dragHover: false
 
   implicitWidth: bar && bar.vertical ? bar.barSize : barSlot
   implicitHeight: bar && bar.vertical ? barSlot : (bar ? bar.barSize : Style.bar.sizeHorizontal)
 
+  // The bar host does not assign this widget's shell property. The scoped
+  // summon/toggle handle lives on the bar facade (bar.shell).
+  function hostShell() {
+    if (shell && typeof shell.toggle === "function") return shell
+    var viaBar = bar ? bar.shell : null
+    if (viaBar && typeof viaBar.toggle === "function") return viaBar
+    return null
+  }
+
   function summon(payload) {
-    if (!shell || typeof shell.summon !== "function") return
-    shell.summon(pluginId, JSON.stringify(payload || {}))
+    var body = JSON.stringify(payload || {})
+    var api = hostShell()
+    if (api && typeof api.summon === "function") {
+      api.summon(pluginId, body)
+      return
+    }
+    Quickshell.execDetached(["omarchy-shell", "shell", "summon", pluginId, body])
   }
 
   function togglePanel() {
-    if (shell && typeof shell.toggle === "function")
-      shell.toggle(pluginId, "{}")
-    else
-      summon({})
+    var api = hostShell()
+    if (api) {
+      api.toggle(pluginId, "{}")
+      return
+    }
+    Quickshell.execDetached(["omarchy-shell", "shell", "toggle", pluginId, "{}"])
   }
 
   function pathsFromDrop(drop) {
@@ -53,7 +66,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     slotSize: root.barSlot
-    opticalSize: root.contentWidth
+    opticalSize: Style.bar.iconCanvas
     tooltipText: "AppImages"
     active: root.dragHover
     useActiveColor: false
@@ -62,8 +75,7 @@ BarWidget {
       Item {
         Image {
           id: glyph
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.left: parent.left
+          anchors.centerIn: parent
           width: Style.bar.iconCanvas
           height: Style.bar.iconCanvas
           source: Qt.resolvedUrl("assets/icon.svg")
@@ -77,18 +89,6 @@ BarWidget {
           anchors.fill: glyph
           source: glyph
           color: root.dragHover ? Color.accent : root.foreground
-        }
-
-        Text {
-          visible: root.showLabel
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.left: glyph.right
-          anchors.leftMargin: Style.space(6)
-          text: "AppImages"
-          color: root.dragHover ? Color.accent : root.foreground
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.bodySmall
-          renderType: Text.NativeRendering
         }
       }
     }
