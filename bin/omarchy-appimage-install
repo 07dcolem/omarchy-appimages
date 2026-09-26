@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Juan I. de Elizalde
 
 # omarchy:summary=Install an AppImage and create a desktop launcher
-# omarchy:args=[path-or-url] [name] [--replace] [--sha256=<hex>] [--confirm-exec]
+# omarchy:args=[path-or-url] [name] [--replace] [--inspect] [--sha256=<hex>] [--confirm-exec]
 
 set -e
 
@@ -108,6 +108,30 @@ payload_in_use() {
     [[ $(desktop_payload_path "$file") == "$wanted" ]] && return 0
   done < <(find "$DESKTOP_DIR" -name '*.desktop' -print0 2>/dev/null)
   return 1
+}
+
+print_inspect() {
+  # One JSON object on stdout. Warnings stay on stderr so a caller can parse
+  # the object even when libfuse is missing.
+  command -v jq >/dev/null || {
+    echo "jq is required" >&2
+    exit 1
+  }
+  local existing_json=false same_json=false conflict_json=false
+  [[ $EXISTING == true ]] && existing_json=true
+  [[ $SAME_FILE == true ]] && same_json=true
+  [[ $PAYLOAD_CONFLICT == true ]] && conflict_json=true
+  jq -nc \
+    --arg source "$SOURCE" \
+    --arg name "$APP_NAME" \
+    --arg version "$NEW_VERSION" \
+    --arg target "$TARGET" \
+    --arg oldVersion "$OLD_VERSION" \
+    --arg oldPayload "$OLD_PAYLOAD" \
+    --argjson existing "$existing_json" \
+    --argjson sameFile "$same_json" \
+    --argjson payloadConflict "$conflict_json" \
+    '{ok:true,source:$source,name:$name,version:$version,target:$target,oldVersion:$oldVersion,oldPayload:$oldPayload,existing:$existing,sameFile:$sameFile,payloadConflict:$payloadConflict}'
 }
 
 remove_icons_for() {
@@ -261,17 +285,11 @@ confirm_url_exec() {
   fi
 }
 
-# --- preflight ---
-
-if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
-  echo -e "\e[33mWarning:\e[0m libfuse.so.2 is missing; most AppImages will not start."
-  echo "         Install it with: omarchy pkg add fuse2"
-fi
-
 # --- input ---
 
 REPLACE=false
 CONFIRM_EXEC=false
+INSPECT=false
 SHA_FROM_CLI=false
 SHA256_ARG=""
 ARGS=()
@@ -279,6 +297,7 @@ for arg in "$@"; do
   case $arg in
   --replace) REPLACE=true ;;
   --confirm-exec) CONFIRM_EXEC=true ;;
+  --inspect) INSPECT=true ;;
   --sha256=*)
     SHA256_ARG="${arg#--sha256=}"
     SHA_FROM_CLI=true
@@ -291,6 +310,24 @@ for arg in "$@"; do
   esac
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
+
+if [[ $INSPECT == true && $# == 0 ]]; then
+  echo "--inspect needs a local AppImage path." >&2
+  exit 1
+fi
+
+# --- preflight ---
+
+if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
+  # Inspect prints one JSON object on stdout. The warning must not share that stream.
+  if [[ $INSPECT == true ]]; then
+    echo "Warning: libfuse.so.2 is missing; most AppImages will not start." >&2
+    echo "         Install it with: omarchy pkg add fuse2" >&2
+  else
+    echo -e "\e[33mWarning:\e[0m libfuse.so.2 is missing; most AppImages will not start."
+    echo "         Install it with: omarchy pkg add fuse2"
+  fi
+fi
 
 if [[ $SHA_FROM_CLI == true ]]; then
   EXPECTED_SHA=$SHA256_ARG
@@ -344,18 +381,24 @@ if [[ -z $SOURCE ]]; then
   exit 1
 fi
 
-mkdir -p "$APPIMAGE_DIR" "$ICON_BASE" "$DESKTOP_DIR"
+# Inspect only reads. Creating Applications before the user confirms would leave
+# a directory behind when they cancel.
+if [[ $INSPECT == false ]]; then
+  mkdir -p "$APPIMAGE_DIR" "$ICON_BASE" "$DESKTOP_DIR"
+fi
 
 # Everything that can refuse the install is evaluated before the payload is
 # moved, so a rejected install leaves the user's file where they left it.
 STAGING=""
 STAGE_DIR=""
 WORKDIR=""
+INSPECT_COPY=""
 cleanup() {
   [[ -n $STAGING && -e $STAGING ]] && rm -f "$STAGING"
   if [[ -n $STAGE_DIR && $STAGE_DIR == "$APPIMAGE_DIR"/.download.* && -d $STAGE_DIR ]]; then
     rm -rf "$STAGE_DIR"
   fi
+  [[ -n $INSPECT_COPY && -e $INSPECT_COPY ]] && rm -f "$INSPECT_COPY"
   [[ -n $WORKDIR && -d $WORKDIR ]] && rm -rf "$WORKDIR"
   return 0
 }
@@ -363,6 +406,10 @@ trap cleanup EXIT
 
 scheme=$(url_scheme "$SOURCE")
 if [[ -n $scheme ]]; then
+  if [[ $INSPECT == true ]]; then
+    echo "--inspect reads a local AppImage and does not download." >&2
+    exit 1
+  fi
   if [[ $scheme != https ]]; then
     echo "Only https:// URLs can be installed." >&2
     echo "Refusing: $SOURCE" >&2
@@ -437,13 +484,25 @@ require_appimage "$SOURCE_FILE"
 
 # Reading the metadata means executing the bundle. A URL download is not marked
 # executable, and --appimage-extract does not run, until the digest has matched
-# and execution is confirmed. A local file is marked here: browsers save
+# and execution is confirmed. A local install marks the file here: browsers save
 # downloads without the executable bit, and extraction needs it.
+# --inspect must not mark the user's file. A non-executable source is copied
+# into the cache, and only that copy is executed.
 if [[ $DOWNLOADED == true ]]; then
   confirm_url_exec "$(stat -c '%s' "$SOURCE_FILE")" "$ACTUAL_SHA"
 fi
 
-chmod +x "$SOURCE_FILE"
+EXTRACT_FILE="$SOURCE_FILE"
+if [[ $INSPECT == true && ! -x $SOURCE_FILE ]]; then
+  INSPECT_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-appimage"
+  mkdir -p "$INSPECT_CACHE"
+  INSPECT_COPY=$(mktemp "$INSPECT_CACHE/inspect-XXXXXX")
+  cp -- "$SOURCE_FILE" "$INSPECT_COPY"
+  chmod +x "$INSPECT_COPY"
+  EXTRACT_FILE="$INSPECT_COPY"
+elif [[ $INSPECT == false ]]; then
+  chmod +x "$SOURCE_FILE"
+fi
 
 # --- read the bundle's own metadata ---
 #
@@ -458,7 +517,7 @@ WORKDIR=$(mktemp -d "$CACHE_BASE/extract-XXXXXX")
 
 BUNDLED_DESKTOP=""
 if ((APPIMAGE_TYPE == 2)); then
-  if (cd "$WORKDIR" && "$SOURCE_FILE" --appimage-extract >/dev/null 2>&1) \
+  if (cd "$WORKDIR" && "$EXTRACT_FILE" --appimage-extract >/dev/null 2>&1) \
     && [[ -d $WORKDIR/squashfs-root ]]; then
     BUNDLED_DESKTOP=$(find "$WORKDIR/squashfs-root" -maxdepth 1 -name '*.desktop' 2>/dev/null \
       | sort | head -1)
@@ -496,11 +555,34 @@ require_plain_name "$APP_NAME"
 
 DESKTOP_FILE="$DESKTOP_DIR/$APP_NAME.desktop"
 OLD_PAYLOAD=""
+OLD_VERSION=""
+NEW_VERSION=$(desktop_value X-AppImage-Version)
+EXISTING=false
+PAYLOAD_CONFLICT=false
+SAME_FILE=false
+
 if [[ -e $DESKTOP_FILE ]]; then
+  EXISTING=true
   OLD_PAYLOAD=$(desktop_payload_path "$DESKTOP_FILE")
   OLD_VERSION=$(sed -n 's/^X-AppImage-Version=//p' "$DESKTOP_FILE" | head -1)
-  NEW_VERSION=$(desktop_value X-AppImage-Version)
+fi
 
+if [[ $SOURCE_FILE -ef $TARGET ]]; then
+  SAME_FILE=true
+fi
+
+# Overwriting a payload another launcher points at would break that launcher.
+# The launcher being replaced is ignored: its own payload is not a conflict.
+if [[ $SAME_FILE == false && -e $TARGET ]] && payload_in_use "$TARGET" "$DESKTOP_FILE"; then
+  PAYLOAD_CONFLICT=true
+fi
+
+if [[ $INSPECT == true ]]; then
+  print_inspect
+  exit 0
+fi
+
+if [[ $EXISTING == true ]]; then
   # Name the versions when both bundles declare one -- "4.17.1 -> 4.19.0" is the
   # difference between a confident upgrade and a guess.
   WHICH="\"$APP_NAME\""
@@ -525,8 +607,7 @@ if [[ -e $DESKTOP_FILE ]]; then
   fi
 fi
 
-# Overwriting a payload another launcher points at would break that launcher.
-if [[ -e $TARGET && ! $SOURCE_FILE -ef $TARGET ]] && payload_in_use "$TARGET" "$DESKTOP_FILE"; then
+if [[ $PAYLOAD_CONFLICT == true ]]; then
   echo "$TARGET already exists and is used by an installed AppImage." >&2
   echo "Remove that one first, or rename the file you are installing." >&2
   exit 1

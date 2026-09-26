@@ -4,7 +4,7 @@ Omarchy plugin that installs AppImages into the launcher: drop a file on the bar
 
 Plugin id: `07dcolem.appimages`
 
-Not Flatpak. Not a Gear Lever clone. v0.1.1 does not check for updates.
+Not Flatpak. Not a Gear Lever clone. Dropping a newer build of an installed app updates that app. The plugin does not look online for new versions.
 
 ## Install
 
@@ -37,9 +37,13 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
-- Install **moves** the file. It does not copy it.
+- The panel reads the bundle's name and version before that confirm. That runs the AppImage once. Reading does not move the file and does not mark it executable.
+- If the app is not installed yet, confirm installs it. Install **moves** the file. It does not copy it.
+- If that app is already installed, confirm offers to update it and names the old and new versions when the bundles have them. Update replaces the launcher. A different filename removes the previous file. The same filename replaces the file in Applications.
+- Dropping the file that is already installed leaves it in place.
+- If the destination filename belongs to a different installed app, confirm explains that and does not install it.
 - Each row: open, or remove (launcher + icon + payload). Keep file drops the launcher and icon only.
-- Esc closes the panel. Enter launches a row, or confirms install.
+- Esc closes the panel. Enter launches a row, or confirms install or update.
 
 ## CLI
 
@@ -57,7 +61,8 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 "$PLUGIN/bin/omarchy-appimage-remove" Example
 ```
 
-- `--replace` on install overwrites a launcher that already uses that name.
+- `--replace` on install overwrites a launcher that already uses that name. The panel passes it when you confirm an update. A non-interactive CLI install still refuses that name until you pass `--replace`.
+- `--inspect <path>` prints one JSON object and does not move the file, write a launcher, or mark the file executable. The panel uses it to decide whether confirm should install or update.
 - `--keep-file` on remove leaves the payload in `~/Applications`.
 - A URL install accepts only `https://`. `http://` and any other scheme are rejected, and redirects off HTTPS are refused.
 - The expected SHA-256 is `--sha256=<64 lowercase hex>` or `OMARCHY_APPIMAGE_SHA256`. It is checked before the bundle is executed. A mismatch deletes the download.
@@ -67,9 +72,9 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.1: install, list, open, remove. URL installs are https-only and require a SHA-256.
+v0.1.2: install, update, list, open, remove. URL installs are https-only and require a SHA-256.
 
-Not in this release: update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
+Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 
 ## Dependencies
 

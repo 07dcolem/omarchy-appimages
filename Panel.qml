@@ -31,6 +31,12 @@ Item {
   property string hash: ""
   property bool hashPending: false
   property bool canReplace: false
+  property bool inspectPending: false
+  property bool confirmEnabled: true
+  property string confirmTitle: "Install this AppImage?"
+  property string confirmDetail: ""
+  property string confirmNote: "Install moves the file into Applications."
+  property string confirmButton: "Install"
   property var pendingRemove: null
 
   readonly property string pluginId: (manifest && manifest.id) || "07dcolem.appimages"
@@ -82,12 +88,13 @@ Item {
     root.dragging = false
     root.busy = false
     root.mode = "list"
-    root.canReplace = false
+    root.clearConfirm()
     prime.stop()
     listProc.running = false
     installProc.running = false
     removeProc.running = false
     hashProc.running = false
+    inspectProc.running = false
   }
 
   function dismiss() {
@@ -144,12 +151,67 @@ Item {
     root.hash = ""
     root.hashPending = true
     root.canReplace = false
+    root.confirmEnabled = false
+    root.confirmTitle = "Install this AppImage?"
+    root.confirmDetail = "Reading the AppImage…"
+    root.confirmNote = "Install moves the file into Applications."
+    root.confirmButton = "Install"
+    root.inspectPending = true
     root.mode = "confirm"
     root.dragging = false
     if (hashProc.running) hashProc.running = false
     hashProc.command = ["sha256sum", path]
     hashProc.running = true
+    root.startInspect()
     Qt.callLater(function () { if (root.opened) keys.forceActiveFocus() })
+  }
+
+  function clearConfirm() {
+    root.inspectPending = false
+    root.canReplace = false
+    root.confirmEnabled = true
+    root.confirmTitle = "Install this AppImage?"
+    root.confirmDetail = ""
+    root.confirmNote = "Install moves the file into Applications."
+    root.confirmButton = "Install"
+  }
+
+  function startInspect() {
+    if (root.mode !== "confirm" || !root.pendingPath) {
+      root.inspectPending = false
+      return
+    }
+    // A drop that arrives while a read is in progress stops that read. Its
+    // exit starts the read for the path now pending.
+    if (inspectProc.running) {
+      inspectProc.running = false
+      return
+    }
+    inspectProc.startedPath = root.pendingPath
+    inspectProc.command = [installBin, "--inspect", root.pendingPath]
+    inspectProc.running = true
+  }
+
+  function finishInspect(code, stdout, stderr) {
+    root.inspectPending = false
+    if (root.mode !== "confirm") return
+    var parsed = Model.parseInspect(stdout)
+    if (code !== 0 || !parsed.ok || parsed.source !== root.pendingPath) {
+      root.confirmEnabled = true
+      root.confirmDetail = ""
+      if (code !== 0) {
+        var err = String(stderr || "").trim()
+        root.status = Model.clip(err || "Could not read this AppImage.", 400)
+      }
+      return
+    }
+    var plan = Model.planFromInspect(parsed)
+    root.canReplace = plan.replace === true
+    root.confirmEnabled = plan.enabled === true
+    root.confirmTitle = plan.title
+    root.confirmDetail = plan.detail
+    root.confirmNote = plan.note
+    root.confirmButton = plan.button
   }
 
   function pickFile() {
@@ -161,7 +223,7 @@ Item {
     if (root.busy || !root.pendingPath) return
     root.busy = true
     root.canReplace = false
-    root.status = replace ? "Replacing…" : "Installing…"
+    root.status = replace ? "Updating…" : "Installing…"
     if (installProc.running) installProc.running = false
     var command = [installBin, root.pendingPath]
     if (replace) command.push("--replace")
@@ -174,20 +236,30 @@ Item {
     var err = String(stderr || "").trim()
     var out = String(stdout || "").trim()
     if (code !== 0) {
-      root.canReplace = err.indexOf("already exists") !== -1
-      root.status = err || "Install failed."
+      // "already exists and is used by" is a different app's payload. --replace
+      // cannot fix that, so only a launcher-name collision becomes an update.
+      var launcherExists = err.indexOf("A launcher named") !== -1
+      root.canReplace = launcherExists
+      root.confirmEnabled = true
+      if (launcherExists) {
+        root.confirmTitle = "Update this AppImage?"
+        root.confirmButton = "Update"
+        root.confirmNote = "Update replaces the installed launcher."
+        root.confirmDetail = ""
+      }
+      root.status = Model.clip(err || "Install failed.", 400)
       return
     }
     root.mode = "list"
-    root.canReplace = false
-    root.status = out.split("\n")[0] || "Installed."
+    root.clearConfirm()
+    root.status = Model.clip(out.split("\n")[0] || "Installed.", 400)
     refresh()
   }
 
   function askRemove(app) {
     root.pendingRemove = app
     root.mode = "remove"
-    root.canReplace = false
+    root.clearConfirm()
     Qt.callLater(function () { if (root.opened) keys.forceActiveFocus() })
   }
 
@@ -230,14 +302,19 @@ Item {
   }
 
   function acceptDialog() {
-    if (root.mode === "confirm") install(false)
-    else if (root.mode === "remove") removeApp(false)
+    if (root.mode === "confirm") {
+      if (root.busy || root.inspectPending || !root.confirmEnabled) return
+      install(root.canReplace)
+      return
+    }
+    if (root.mode === "remove") removeApp(false)
   }
 
   function cancelDialog() {
     root.mode = "list"
-    root.canReplace = false
+    root.clearConfirm()
     root.pendingRemove = null
+    inspectProc.running = false
   }
 
   function moveCursor(delta) {
@@ -271,6 +348,26 @@ Item {
     stderr: StdioCollector { id: removeErr; waitForEnd: true }
     onExited: function (code) {
       Qt.callLater(function () { root.finishRemove(code, removeOut.text, removeErr.text) })
+    }
+  }
+
+  Process {
+    id: inspectProc
+    property string startedPath: ""
+    stdout: StdioCollector { id: inspectOut; waitForEnd: true }
+    stderr: StdioCollector { id: inspectErr; waitForEnd: true }
+    onExited: function (code) {
+      var started = inspectProc.startedPath
+      var out = String(inspectOut.text || "")
+      var err = String(inspectErr.text || "")
+      Qt.callLater(function () {
+        if (started !== root.pendingPath || root.mode !== "confirm") {
+          if (root.mode === "confirm" && started !== root.pendingPath) root.startInspect()
+          else root.inspectPending = false
+          return
+        }
+        root.finishInspect(code, out, err)
+      })
     }
   }
 
@@ -560,7 +657,8 @@ Item {
             spacing: Style.space(6)
 
             Text {
-              text: "Install this AppImage?"
+              text: root.confirmTitle
+              textFormat: Text.PlainText
               color: root.textColor
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -571,6 +669,7 @@ Item {
               width: parent.width
               wrapMode: Text.WrapAnywhere
               text: "File  " + root.pendingName
+              textFormat: Text.PlainText
               color: root.textColor
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -580,6 +679,7 @@ Item {
               width: parent.width
               wrapMode: Text.WrapAnywhere
               text: "To  " + root.pendingDest
+              textFormat: Text.PlainText
               color: root.muted
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -589,6 +689,7 @@ Item {
               width: parent.width
               wrapMode: Text.WrapAnywhere
               text: root.hashPending ? "sha256  hashing…" : (root.hash ? "sha256  " + root.hash : "sha256  unavailable")
+              textFormat: Text.PlainText
               color: root.muted
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -596,8 +697,21 @@ Item {
 
             Text {
               width: parent.width
+              visible: root.confirmDetail !== ""
               wrapMode: Text.WordWrap
-              text: "Install moves the file into Applications."
+              text: root.confirmDetail
+              textFormat: Text.PlainText
+              color: root.textColor
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            Text {
+              width: parent.width
+              visible: root.confirmNote !== ""
+              wrapMode: Text.WordWrap
+              text: root.confirmNote
+              textFormat: Text.PlainText
               color: root.muted
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -606,9 +720,10 @@ Item {
             Row {
               spacing: Style.space(8)
               TextButton {
-                label: root.canReplace ? "Replace" : "Install"
+                label: root.confirmButton
                 primary: true
-                enabled: !root.busy
+                visible: root.inspectPending || root.confirmEnabled
+                enabled: !root.busy && root.confirmEnabled && !root.inspectPending
                 onClicked: root.install(root.canReplace)
               }
               TextButton {

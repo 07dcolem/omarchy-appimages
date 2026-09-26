@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.2 - 2026-09-26
+
+### Added
+
+- Dropping or adding a newer AppImage of an installed app asks to update it. Confirming replaces the launcher and retires the previous payload when the new file has a different name.
+- `omarchy-appimage-install --inspect` reports that match without moving the file or marking it executable.
+
+### Changed
+
+- Enter on the confirm step follows the button: Update when the app is already installed, Install otherwise.
+
 ## 0.1.1 - 2026-09-23
 
 ### Security

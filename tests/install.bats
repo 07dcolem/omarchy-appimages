@@ -580,3 +580,105 @@ teardown() { harness_teardown; }
   [ "$(desktop_key "$DESKTOP_DIR/Real Name.desktop" X-AppImage-Version)" = "9.9" ]
   [ -x "$APPS_DIR/Foo.AppImage" ]
 }
+
+inspect_json() {
+  printf '%s\n' "$output" | awk '/^\{/{line=$0} END{print line}'
+}
+
+@test "install: --inspect reports an update and leaves both files in place" {
+  make_appimage "$HOME/Downloads/App-1.0.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/App-1.0.AppImage"
+
+  make_appimage "$HOME/Downloads/App-2.0.AppImage" --name "Same App" --version "2.0"
+  run omarchy-appimage-install --inspect "$HOME/Downloads/App-2.0.AppImage"
+  [ "$status" -eq 0 ]
+  [ -e "$HOME/Downloads/App-2.0.AppImage" ]
+  [ -e "$APPS_DIR/App-1.0.AppImage" ]
+  [ ! -e "$APPS_DIR/App-2.0.AppImage" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "1.0" ]
+
+  json=$(inspect_json)
+  jq -e --arg target "$APPS_DIR/App-2.0.AppImage" --arg old "$APPS_DIR/App-1.0.AppImage" \
+    '.ok == true and .existing == true and .sameFile == false and .payloadConflict == false and .name == "Same App" and .version == "2.0" and .oldVersion == "1.0" and .target == $target and .oldPayload == $old' <<<"$json"
+}
+
+@test "install: --inspect of a new app installs nothing" {
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "1.0"
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+  [ -e "$HOME/Downloads/Foo.AppImage" ]
+  [ ! -e "$APPS_DIR/Foo.AppImage" ]
+  [ ! -e "$DESKTOP_DIR/Foo.desktop" ]
+
+  json=$(inspect_json)
+  jq -e '.existing == false and .sameFile == false and .payloadConflict == false and .name == "Foo" and .version == "1.0"' <<<"$json"
+}
+
+@test "install: --inspect of the installed payload reports sameFile" {
+  make_appimage "$HOME/Downloads/App.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/App.AppImage"
+
+  run omarchy-appimage-install --inspect "$APPS_DIR/App.AppImage"
+  [ "$status" -eq 0 ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "1.0" ]
+
+  json=$(inspect_json)
+  jq -e --arg path "$APPS_DIR/App.AppImage" \
+    '.existing == true and .sameFile == true and .payloadConflict == false and .target == $path and .oldPayload == $path' <<<"$json"
+}
+
+@test "install: --inspect of a same-name file reports an in-place update" {
+  make_appimage "$HOME/Downloads/App.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/App.AppImage"
+
+  make_appimage "$HOME/Downloads/App.AppImage" --name "Same App" --version "2.0"
+  run omarchy-appimage-install --inspect "$HOME/Downloads/App.AppImage"
+  [ "$status" -eq 0 ]
+  [ -e "$HOME/Downloads/App.AppImage" ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "1.0" ]
+
+  json=$(inspect_json)
+  jq -e --arg target "$APPS_DIR/App.AppImage" \
+    '.existing == true and .sameFile == false and .payloadConflict == false and .version == "2.0" and .oldVersion == "1.0" and .target == $target and .oldPayload == $target' <<<"$json"
+}
+
+@test "install: --inspect reports a destination owned by a different app" {
+  make_appimage "$HOME/Downloads/Other.AppImage" --name "Other"
+  omarchy-appimage-install "$HOME/Downloads/Other.AppImage"
+
+  make_appimage "$HOME/Downloads/Other.AppImage" --name "Different"
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Other.AppImage"
+  [ "$status" -eq 0 ]
+  [ -e "$APPS_DIR/Other.AppImage" ]
+  [ -e "$HOME/Downloads/Other.AppImage" ]
+  [ ! -e "$DESKTOP_DIR/Different.desktop" ]
+
+  json=$(inspect_json)
+  jq -e '.existing == false and .payloadConflict == true and .name == "Different"' <<<"$json"
+}
+
+@test "install: --inspect does not mark a non-executable file executable" {
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "3.0"
+  chmod -x "$HOME/Downloads/Foo.AppImage"
+  before=$(stat -c %a "$HOME/Downloads/Foo.AppImage")
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+  [ "$(stat -c %a "$HOME/Downloads/Foo.AppImage")" = "$before" ]
+  [ ! -x "$HOME/Downloads/Foo.AppImage" ]
+  [ ! -e "$DESKTOP_DIR/Foo.desktop" ]
+  [ -z "$(find "$XDG_CACHE_HOME/omarchy-appimage" -mindepth 1 -print -quit 2>/dev/null || true)" ]
+
+  json=$(inspect_json)
+  jq -e '.name == "Foo" and .version == "3.0" and .existing == false' <<<"$json"
+}
+
+@test "install: --inspect rejects a URL and a missing path" {
+  run omarchy-appimage-install --inspect "https://example.com/Foo.AppImage"
+  [ "$status" -ne 0 ]
+  [[ $output == *"does not download"* ]]
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Missing.AppImage"
+  [ "$status" -ne 0 ]
+  [[ $output == *"No such file"* ]]
+}

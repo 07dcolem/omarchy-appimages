@@ -88,7 +88,10 @@ Matches `/usr/share/omarchy/bin`.
   this question.
 - The cleanup trap must delete a failed or partial staging file.
 - The panel and the bar drop target pass local paths only. They do not download
-  URLs. Do not make the plugin run `omarchy pkg add`.
+  URLs. A chosen local file is read with `--inspect` before confirm. That runs
+  `--appimage-extract` and does not move the file or mark it executable. Confirm
+  then installs, or passes `--replace` when that app name is already installed.
+  Do not make the plugin run `omarchy pkg add`.
 
 ## Testing
 
