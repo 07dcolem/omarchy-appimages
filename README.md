@@ -37,13 +37,15 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
-- The panel reads the bundle's name and version before that confirm. That runs the AppImage once. Reading does not move the file and does not mark it executable.
+- Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs`. The AppImage runs when you click Install or Update. The preview does not move the file and does not mark it executable.
 - If the app is not installed yet, confirm installs it. Install **moves** the file. It does not copy it.
 - If that app is already installed, confirm offers to update it and names the old and new versions when the bundles have them. Update replaces the launcher. A different filename removes the previous file. The same filename replaces the file in Applications.
 - Dropping the file that is already installed leaves it in place.
 - If the destination filename belongs to a different installed app, confirm explains that and does not install it.
 - Each row: open, or remove (launcher + icon + payload). Keep file drops the launcher and icon only.
 - Esc closes the panel. Enter launches a row, or confirms install or update.
+
+![Confirming an update of Northwind from 1.0 to 2.0](preview.png)
 
 ## CLI
 
@@ -62,7 +64,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 ```
 
 - `--replace` on install overwrites a launcher that already uses that name. The panel passes it when you confirm an update. A non-interactive CLI install still refuses that name until you pass `--replace`.
-- `--inspect <path>` prints one JSON object and does not move the file, write a launcher, or mark the file executable. The panel uses it to decide whether confirm should install or update.
+- `--inspect <path>` prints one JSON object. It reads the embedded desktop entry and does not run the file, move it, write a launcher, or mark it executable. The panel uses it to decide whether confirm should install or update.
 - `--keep-file` on remove leaves the payload in `~/Applications`.
 - A URL install accepts only `https://`. `http://` and any other scheme are rejected, and redirects off HTTPS are refused.
 - The expected SHA-256 is `--sha256=<64 lowercase hex>` or `OMARCHY_APPIMAGE_SHA256`. It is checked before the bundle is executed. A mismatch deletes the download.
@@ -72,7 +74,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.2: install, update, list, open, remove. URL installs are https-only and require a SHA-256.
+v0.1.3: install, update, list, open, remove. URL installs are https-only and require a SHA-256. The pre-install preview reads metadata without running the AppImage.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 
@@ -84,11 +86,15 @@ Most AppImages are type-2 and need `libfuse.so.2`:
 omarchy pkg add fuse2
 ```
 
-`fuse3` only gives `fusermount3`. Metadata extraction uses the bundle's `--appimage-extract`, which also wants `libfuse.so.2`. Optional, for inspecting a squashfs by hand:
+`fuse3` only gives `fusermount3`. After you confirm Install or Update, metadata for the launcher still uses the bundle's `--appimage-extract`, which also wants `libfuse.so.2`.
+
+The preview before that confirm uses `unsquashfs`:
 
 ```bash
 omarchy pkg add squashfs-tools
 ```
+
+Without `squashfs-tools`, confirm shows the filename and does not run the file.
 
 A launcher can still be written without FUSE. Starting the app may then fail; the panel warns once.
 

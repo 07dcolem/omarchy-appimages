@@ -88,10 +88,12 @@ Matches `/usr/share/omarchy/bin`.
   this question.
 - The cleanup trap must delete a failed or partial staging file.
 - The panel and the bar drop target pass local paths only. They do not download
-  URLs. A chosen local file is read with `--inspect` before confirm. That runs
-  `--appimage-extract` and does not move the file or mark it executable. Confirm
-  then installs, or passes `--replace` when that app name is already installed.
-  Do not make the plugin run `omarchy pkg add`.
+  URLs. A chosen local file is read with `--inspect` before confirm. `--inspect`
+  reads a type-2 desktop entry with `/usr/bin/unsquashfs` and does not run the
+  file, move it, or mark it executable. Confirm then installs, or passes
+  `--replace` when that app name is already installed. That install still runs
+  `--appimage-extract` after the click. Do not make the plugin run
+  `omarchy pkg add`.
 
 ## Testing
 
@@ -101,7 +103,9 @@ Matches `/usr/share/omarchy/bin`.
   `curl`, `omarchy-menu-select`, `omarchy-notification-send`,
   `gtk-update-icon-cache`, and `update-desktop-database`.
 - No test may require FUSE. Fixtures are generated ELF stubs that fake
-  `--appimage-extract` by materialising a `squashfs-root/`.
+  `--appimage-extract` by materialising a `squashfs-root/`. Type-2 fixtures also
+  append a gzip squashfs so `--inspect` can read the desktop entry without
+  executing the stub. `mksquashfs` and `unsquashfs` come from `squashfs-tools`.
 
 ## Manual verification
 

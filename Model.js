@@ -130,5 +130,7 @@ function planFromInspect(data) {
     }
   }
 
+  if (typeof data.warning === "string" && data.warning)
+    install.detail = clip(data.warning, 240)
   return install
 }

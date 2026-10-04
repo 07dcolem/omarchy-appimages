@@ -131,7 +131,32 @@ print_inspect() {
     --argjson existing "$existing_json" \
     --argjson sameFile "$same_json" \
     --argjson payloadConflict "$conflict_json" \
-    '{ok:true,source:$source,name:$name,version:$version,target:$target,oldVersion:$oldVersion,oldPayload:$oldPayload,existing:$existing,sameFile:$sameFile,payloadConflict:$payloadConflict}'
+    --arg warning "$METADATA_WARNING" \
+    '{ok:true,source:$source,name:$name,version:$version,target:$target,oldVersion:$oldVersion,oldPayload:$oldPayload,existing:$existing,sameFile:$sameFile,payloadConflict:$payloadConflict,warning:$warning}'
+}
+
+read_desktop_without_exec() {
+  # Type-2 metadata for --inspect. unsquashfs reads the embedded filesystem.
+  # The AppImage itself is not executed, and its mode is left unchanged.
+  local src="$1" helper out rc
+  helper="${LAUNCH_BIN%/*}/read-appimage-desktop.py"
+  out=$(mktemp)
+  DESKTOP_READ=$out
+  set +e
+  /usr/bin/python3 -I -S "$helper" "$src" >"$out"
+  rc=$?
+  set -e
+  if [[ $rc -eq 0 && -s $out ]]; then
+    BUNDLED_DESKTOP=$out
+    return 0
+  fi
+  rm -f "$out"
+  DESKTOP_READ=""
+  if [[ $rc -eq 3 ]]; then
+    METADATA_WARNING="Install squashfs-tools to read the name and version without running the file (omarchy pkg add squashfs-tools)."
+  else
+    METADATA_WARNING="Could not read the name and version without running this file. Confirm shows the filename."
+  fi
 }
 
 remove_icons_for() {
@@ -393,12 +418,15 @@ STAGING=""
 STAGE_DIR=""
 WORKDIR=""
 INSPECT_COPY=""
+DESKTOP_READ=""
+METADATA_WARNING=""
 cleanup() {
   [[ -n $STAGING && -e $STAGING ]] && rm -f "$STAGING"
   if [[ -n $STAGE_DIR && $STAGE_DIR == "$APPIMAGE_DIR"/.download.* && -d $STAGE_DIR ]]; then
     rm -rf "$STAGE_DIR"
   fi
   [[ -n $INSPECT_COPY && -e $INSPECT_COPY ]] && rm -f "$INSPECT_COPY"
+  [[ -n $DESKTOP_READ && -e $DESKTOP_READ ]] && rm -f "$DESKTOP_READ"
   [[ -n $WORKDIR && -d $WORKDIR ]] && rm -rf "$WORKDIR"
   return 0
 }
@@ -482,58 +510,51 @@ fi
 
 require_appimage "$SOURCE_FILE"
 
-# Reading the metadata means executing the bundle. A URL download is not marked
-# executable, and --appimage-extract does not run, until the digest has matched
-# and execution is confirmed. A local install marks the file here: browsers save
-# downloads without the executable bit, and extraction needs it.
-# --inspect must not mark the user's file. A non-executable source is copied
-# into the cache, and only that copy is executed.
-if [[ $DOWNLOADED == true ]]; then
-  confirm_url_exec "$(stat -c '%s' "$SOURCE_FILE")" "$ACTUAL_SHA"
-fi
-
-EXTRACT_FILE="$SOURCE_FILE"
-if [[ $INSPECT == true && ! -x $SOURCE_FILE ]]; then
-  INSPECT_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-appimage"
-  mkdir -p "$INSPECT_CACHE"
-  INSPECT_COPY=$(mktemp "$INSPECT_CACHE/inspect-XXXXXX")
-  cp -- "$SOURCE_FILE" "$INSPECT_COPY"
-  chmod +x "$INSPECT_COPY"
-  EXTRACT_FILE="$INSPECT_COPY"
-elif [[ $INSPECT == false ]]; then
-  chmod +x "$SOURCE_FILE"
-fi
-
-# --- read the bundle's own metadata ---
-#
-# Full extract rather than a targeted pattern extract: .DirIcon is usually a
-# symlink into usr/share/icons, so a pattern extract leaves it dangling. Extract
-# under the cache, not $TMPDIR -- /tmp is tmpfs on Omarchy, so a large bundle
-# would spend its uncompressed size in RAM.
-
-CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-appimage"
-mkdir -p "$CACHE_BASE"
-WORKDIR=$(mktemp -d "$CACHE_BASE/extract-XXXXXX")
-
+# A URL download is not marked executable, and --appimage-extract does not run,
+# until the digest has matched and execution is confirmed. --inspect never runs
+# the file: it reads a type-2 desktop entry from the embedded squashfs.
 BUNDLED_DESKTOP=""
-if ((APPIMAGE_TYPE == 2)); then
-  if (cd "$WORKDIR" && "$EXTRACT_FILE" --appimage-extract >/dev/null 2>&1) \
-    && [[ -d $WORKDIR/squashfs-root ]]; then
-    BUNDLED_DESKTOP=$(find "$WORKDIR/squashfs-root" -maxdepth 1 -name '*.desktop' 2>/dev/null \
-      | sort | head -1)
+EXTRACT_FILE="$SOURCE_FILE"
+if [[ $INSPECT == true ]]; then
+  if ((APPIMAGE_TYPE == 2)); then
+    read_desktop_without_exec "$SOURCE_FILE"
   else
-    # A type-2 bundle that will not extract is a real failure, not the expected
-    # type-1 fallback: without its metadata the app is named after its filename
-    # and gets a generic icon. Missing FUSE is the usual cause. Say so, loudly --
-    # the degradation is otherwise silent and looks like the tool being dumb.
-    echo -e "\e[33mWarning:\e[0m could not extract $(basename "$SOURCE_FILE") to read its metadata." >&2
-    echo "         Falling back to the filename and a generic icon." >&2
-    echo "         The bundle may be damaged, or its runtime may need libfuse.so.2" >&2
-    echo "         (omarchy pkg add fuse2). Re-run afterwards for the real name and icon." >&2
+    METADATA_WARNING="This AppImage does not include a desktop entry the preview can read. Confirm shows the filename."
   fi
+else
+  if [[ $DOWNLOADED == true ]]; then
+    confirm_url_exec "$(stat -c '%s' "$SOURCE_FILE")" "$ACTUAL_SHA"
+  fi
+  # Browsers save downloads without the executable bit, and extraction needs it.
+  chmod +x "$SOURCE_FILE"
 
-  if [[ -z $BUNDLED_DESKTOP && -d $WORKDIR/squashfs-root ]]; then
-    echo -e "\e[33mWarning:\e[0m no desktop entry inside the bundle; using the filename." >&2
+  # Full extract rather than a targeted pattern extract: .DirIcon is usually a
+  # symlink into usr/share/icons, so a pattern extract leaves it dangling. Extract
+  # under the cache, not $TMPDIR -- /tmp is tmpfs on Omarchy, so a large bundle
+  # would spend its uncompressed size in RAM.
+  CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-appimage"
+  mkdir -p "$CACHE_BASE"
+  WORKDIR=$(mktemp -d "$CACHE_BASE/extract-XXXXXX")
+
+  if ((APPIMAGE_TYPE == 2)); then
+    if (cd "$WORKDIR" && "$EXTRACT_FILE" --appimage-extract >/dev/null 2>&1) \
+      && [[ -d $WORKDIR/squashfs-root ]]; then
+      BUNDLED_DESKTOP=$(find "$WORKDIR/squashfs-root" -maxdepth 1 -name '*.desktop' 2>/dev/null \
+        | sort | head -1)
+    else
+      # A type-2 bundle that will not extract is a real failure, not the expected
+      # type-1 fallback: without its metadata the app is named after its filename
+      # and gets a generic icon. Missing FUSE is the usual cause. Say so, loudly --
+      # the degradation is otherwise silent and looks like the tool being dumb.
+      echo -e "\e[33mWarning:\e[0m could not extract $(basename "$SOURCE_FILE") to read its metadata." >&2
+      echo "         Falling back to the filename and a generic icon." >&2
+      echo "         The bundle may be damaged, or its runtime may need libfuse.so.2" >&2
+      echo "         (omarchy pkg add fuse2). Re-run afterwards for the real name and icon." >&2
+    fi
+
+    if [[ -z $BUNDLED_DESKTOP && -d $WORKDIR/squashfs-root ]]; then
+      echo -e "\e[33mWarning:\e[0m no desktop entry inside the bundle; using the filename." >&2
+    fi
   fi
 fi
 

@@ -5,3 +5,5 @@ _specs
 .DS_Store
 build/
 dist/
+__pycache__/
+*.pyc

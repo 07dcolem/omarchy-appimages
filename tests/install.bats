@@ -586,11 +586,14 @@ inspect_json() {
 }
 
 @test "install: --inspect reports an update and leaves both files in place" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
   make_appimage "$HOME/Downloads/App-1.0.AppImage" --name "Same App" --version "1.0"
   omarchy-appimage-install "$HOME/Downloads/App-1.0.AppImage"
 
   make_appimage "$HOME/Downloads/App-2.0.AppImage" --name "Same App" --version "2.0"
+  : >"$APPIMAGE_EXEC_LOG"
   run omarchy-appimage-install --inspect "$HOME/Downloads/App-2.0.AppImage"
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
   [ "$status" -eq 0 ]
   [ -e "$HOME/Downloads/App-2.0.AppImage" ]
   [ -e "$APPS_DIR/App-1.0.AppImage" ]
@@ -599,7 +602,7 @@ inspect_json() {
 
   json=$(inspect_json)
   jq -e --arg target "$APPS_DIR/App-2.0.AppImage" --arg old "$APPS_DIR/App-1.0.AppImage" \
-    '.ok == true and .existing == true and .sameFile == false and .payloadConflict == false and .name == "Same App" and .version == "2.0" and .oldVersion == "1.0" and .target == $target and .oldPayload == $old' <<<"$json"
+    '.ok == true and .existing == true and .sameFile == false and .payloadConflict == false and .name == "Same App" and .version == "2.0" and .oldVersion == "1.0" and .target == $target and .oldPayload == $old and .warning == ""' <<<"$json"
 }
 
 @test "install: --inspect of a new app installs nothing" {
@@ -658,6 +661,8 @@ inspect_json() {
 }
 
 @test "install: --inspect does not mark a non-executable file executable" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
   make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "3.0"
   chmod -x "$HOME/Downloads/Foo.AppImage"
   before=$(stat -c %a "$HOME/Downloads/Foo.AppImage")
@@ -666,11 +671,42 @@ inspect_json() {
   [ "$status" -eq 0 ]
   [ "$(stat -c %a "$HOME/Downloads/Foo.AppImage")" = "$before" ]
   [ ! -x "$HOME/Downloads/Foo.AppImage" ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
   [ ! -e "$DESKTOP_DIR/Foo.desktop" ]
   [ -z "$(find "$XDG_CACHE_HOME/omarchy-appimage" -mindepth 1 -print -quit 2>/dev/null || true)" ]
 
   json=$(inspect_json)
-  jq -e '.name == "Foo" and .version == "3.0" and .existing == false' <<<"$json"
+  jq -e '.name == "Foo" and .version == "3.0" and .existing == false and .warning == ""' <<<"$json"
+}
+
+@test "install: --inspect of a type-1 bundle uses the filename and does not execute" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Legacy.AppImage" --type 1 --name "Real"
+  chmod -x "$HOME/Downloads/Legacy.AppImage"
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Legacy.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -x "$HOME/Downloads/Legacy.AppImage" ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+
+  json=$(inspect_json)
+  jq -e '.name == "Legacy" and .version == "" and .warning != ""' <<<"$json"
+}
+
+@test "install: --inspect does not follow a symlink into the bundle" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "1.0"
+  ln -s "Foo.AppImage" "$HOME/Downloads/Link.AppImage"
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Link.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ -x "$HOME/Downloads/Foo.AppImage" ]
+
+  json=$(inspect_json)
+  jq -e '.name == "Link" and .warning != "" and .version == ""' <<<"$json"
 }
 
 @test "install: --inspect rejects a URL and a missing path" {

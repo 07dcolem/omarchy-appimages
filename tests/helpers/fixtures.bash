@@ -27,7 +27,8 @@ FIXTURE_ICON_128PX='iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAAAyElEQVR42u3R
 FIXTURE_ICON_1024PX='iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAAAAABadnRfAAAJF0lEQVR42u3UMQEAAAzCMKThXxUidi6R0KMp8FYkAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwADAACcAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAMQAIwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMAA5AADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwAMADAAwAAAAwADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAwAMADAAAADAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAMAAAAMADAAwAOBmLZw8ATiokIMAAAAASUVORK5CYII='
 
 make_appimage() {
-  local path="$1"; shift
+  local path="$1"
+  shift
   local name="Fixture App" categories="Utility;" wmclass="fixture-app"
   local icon_key="fixture-icon" type=2 want_icon=1 want_desktop=1 extra_desktop=0
   local icon_b64="$FIXTURE_ICON_1PX" mime="" comment="" refuse_extract=0 version=""
@@ -35,29 +36,90 @@ make_appimage() {
 
   while (($#)); do
     case "$1" in
-      --name) name="$2"; shift 2 ;;
-      --categories) categories="$2"; shift 2 ;;
-      --wmclass) wmclass="$2"; shift 2 ;;
-      --icon-key) icon_key="$2"; shift 2 ;;
-      --type) type="$2"; shift 2 ;;
-      --no-icon) want_icon=0; shift ;;
-      --no-desktop) want_desktop=0; shift ;;
-      --extra-desktop) extra_desktop=1; shift ;;
-      --icon-128) icon_b64="$FIXTURE_ICON_128PX"; shift ;;
-      --icon-1024) icon_b64="$FIXTURE_ICON_1024PX"; shift ;;
-      --mime) mime="$2"; shift 2 ;;
-      --comment) comment="$2"; shift 2 ;;
-      --refuse-extract) refuse_extract=1; shift ;;
-      --version) version="$2"; shift 2 ;;
-      # .DirIcon as a plain regular file and no Icon= key, which is how a real
-      # bundle drives the fallback branch. It carries no extension at all.
-      --diricon-plain) diricon_plain=1; shift ;;
-      *) echo "make_appimage: unknown option $1" >&2; return 1 ;;
+    --name)
+      name="$2"
+      shift 2
+      ;;
+    --categories)
+      categories="$2"
+      shift 2
+      ;;
+    --wmclass)
+      wmclass="$2"
+      shift 2
+      ;;
+    --icon-key)
+      icon_key="$2"
+      shift 2
+      ;;
+    --type)
+      type="$2"
+      shift 2
+      ;;
+    --no-icon)
+      want_icon=0
+      shift
+      ;;
+    --no-desktop)
+      want_desktop=0
+      shift
+      ;;
+    --extra-desktop)
+      extra_desktop=1
+      shift
+      ;;
+    --icon-128)
+      icon_b64="$FIXTURE_ICON_128PX"
+      shift
+      ;;
+    --icon-1024)
+      icon_b64="$FIXTURE_ICON_1024PX"
+      shift
+      ;;
+    --mime)
+      mime="$2"
+      shift 2
+      ;;
+    --comment)
+      comment="$2"
+      shift 2
+      ;;
+    --refuse-extract)
+      refuse_extract=1
+      shift
+      ;;
+    --version)
+      version="$2"
+      shift 2
+      ;;
+    # .DirIcon as a plain regular file and no Icon= key, which is how a real
+    # bundle drives the fallback branch. It carries no extension at all.
+    --diricon-plain)
+      diricon_plain=1
+      shift
+      ;;
+    *)
+      echo "make_appimage: unknown option $1" >&2
+      return 1
+      ;;
     esac
   done
 
   mkdir -p "$(dirname "$path")"
   local behaviour="$path.behaviour"
+  local desktop_text=""
+  if ((want_desktop)); then
+    desktop_text="[Desktop Entry]"$'\n'
+    desktop_text+="Name=${name}"$'\n'
+    desktop_text+="Exec=AppRun"$'\n'
+    [[ -n $categories ]] && desktop_text+="Categories=${categories}"$'\n'
+    [[ -n $mime ]] && desktop_text+="MimeType=${mime}"$'\n'
+    [[ -n $comment ]] && desktop_text+="Comment=${comment}"$'\n'
+    [[ -n $version ]] && desktop_text+="X-AppImage-Version=${version}"$'\n'
+    [[ -n $wmclass ]] && desktop_text+="StartupWMClass=${wmclass}"$'\n'
+    ((diricon_plain)) || desktop_text+="Icon=${icon_key}"$'\n'
+    desktop_text+="Type=Application"$'\n'
+  fi
 
   {
     echo '#!/bin/bash'
@@ -71,16 +133,7 @@ make_appimage() {
       echo '  mkdir -p squashfs-root/usr/share/icons/hicolor/256x256/apps'
       if ((want_desktop)); then
         printf '  cat >squashfs-root/%s.desktop <<'"'"'DESK'"'"'\n' "$icon_key"
-        echo '[Desktop Entry]'
-        printf 'Name=%s\n' "$name"
-        printf 'Exec=AppRun\n'
-        [[ -n $categories ]] && printf 'Categories=%s\n' "$categories"
-        [[ -n $mime ]] && printf 'MimeType=%s\n' "$mime"
-        [[ -n $comment ]] && printf 'Comment=%s\n' "$comment"
-        [[ -n $version ]] && printf 'X-AppImage-Version=%s\n' "$version"
-        [[ -n $wmclass ]] && printf 'StartupWMClass=%s\n' "$wmclass"
-        ((diricon_plain)) || printf 'Icon=%s\n' "$icon_key"
-        echo 'Type=Application'
+        printf '%s' "$desktop_text"
         echo 'DESK'
       fi
       if ((extra_desktop)); then
@@ -132,6 +185,36 @@ CSRC
     printf '\x41\x49\x02' | dd of="$path" bs=1 seek=8 conv=notrunc status=none
   fi
   chmod +x "$path"
+
+  # --inspect reads this squashfs and must not execute the ELF above it.
+  if ((type == 2 && refuse_extract == 0 && want_desktop)); then
+    local stage img offset size
+    stage=$(mktemp -d)
+    img=$(mktemp)
+    rm -f "$img"
+    printf '%s' "$desktop_text" >"$stage/${icon_key}.desktop"
+    mksquashfs "$stage" "$img" -comp gzip -noappend -all-root -no-progress -quiet >/dev/null
+    offset=$(/usr/bin/python3 -I -S -c '
+import struct, sys
+data = open(sys.argv[1], "rb").read(64)
+e_shoff = struct.unpack_from("<Q", data, 40)[0]
+e_shentsize = struct.unpack_from("<H", data, 58)[0]
+e_shnum = struct.unpack_from("<H", data, 60)[0]
+print(e_shoff + e_shentsize * e_shnum)
+' "$path")
+    size=$(stat -c %s "$path")
+    if ((offset > size)); then
+      dd if=/dev/zero bs=1 count=$((offset - size)) status=none >>"$path"
+    elif ((offset != size)); then
+      echo "fixture ELF section table does not end at the file size" >&2
+      rm -rf "$stage"
+      rm -f "$img"
+      return 1
+    fi
+    cat "$img" >>"$path"
+    rm -rf "$stage"
+    rm -f "$img"
+  fi
 }
 
 # A file that is not an AppImage at all: correct ELF header, no magic.

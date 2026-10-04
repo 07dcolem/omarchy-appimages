@@ -42,6 +42,8 @@ format:
 test:
 	@command -v bats >/dev/null || { echo "bats missing: omarchy pkg add bats" >&2; exit 1; }
 	@command -v cc >/dev/null || { echo "cc missing: fixtures are compiled ELF stubs" >&2; exit 1; }
+	@command -v mksquashfs >/dev/null || { echo "mksquashfs missing: omarchy pkg add squashfs-tools" >&2; exit 1; }
+	@command -v unsquashfs >/dev/null || { echo "unsquashfs missing: omarchy pkg add squashfs-tools" >&2; exit 1; }
 	bats tests/
 
 install:
