@@ -89,8 +89,9 @@ Matches `/usr/share/omarchy/bin`.
 - The cleanup trap must delete a failed or partial staging file.
 - The panel and the bar drop target pass local paths only. They do not download
   URLs. A chosen local file is read with `--inspect` before confirm. `--inspect`
-  reads a type-2 desktop entry with `/usr/bin/unsquashfs` and does not run the
-  file, move it, or mark it executable. Confirm then installs, or passes
+  reads a type-2 desktop entry with `/usr/bin/python3` and `/usr/bin/unsquashfs`
+  and does not run the file, move it, or mark it executable. A missing program
+  is named in the panel, with `omarchy pkg add`. Confirm then installs, or passes
   `--replace` when that app name is already installed. That install still runs
   `--appimage-extract` after the click. Do not make the plugin run
   `omarchy pkg add`.
@@ -106,6 +107,8 @@ Matches `/usr/share/omarchy/bin`.
   `--appimage-extract` by materialising a `squashfs-root/`. Type-2 fixtures also
   append a gzip squashfs so `--inspect` can read the desktop entry without
   executing the stub. `mksquashfs` and `unsquashfs` come from `squashfs-tools`.
+  `FAKE_NO_PYTHON=1` and `FAKE_NO_UNSQUASHFS=1` make the preview report those
+  packages missing. They do not select another program.
 
 ## Manual verification
 

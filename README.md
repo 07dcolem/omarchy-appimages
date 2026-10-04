@@ -37,7 +37,7 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
-- Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs`. The AppImage runs when you click Install or Update. The preview does not move the file and does not mark it executable.
+- Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs`. The AppImage runs when you click Install or Update. The preview does not move the file and does not mark it executable. If `python`, `squashfs-tools`, or `fuse2` is missing, the panel names that package and the `omarchy pkg add` command.
 - If the app is not installed yet, confirm installs it. Install **moves** the file. It does not copy it.
 - If that app is already installed, confirm offers to update it and names the old and new versions when the bundles have them. Update replaces the launcher. A different filename removes the previous file. The same filename replaces the file in Applications.
 - Dropping the file that is already installed leaves it in place.
@@ -74,7 +74,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.3: install, update, list, open, remove. URL installs are https-only and require a SHA-256. The pre-install preview reads metadata without running the AppImage.
+v0.1.4: install, update, list, open, remove. URL installs are https-only and require a SHA-256. The pre-install preview reads metadata without running the AppImage. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 
@@ -88,15 +88,15 @@ omarchy pkg add fuse2
 
 `fuse3` only gives `fusermount3`. After you confirm Install or Update, metadata for the launcher still uses the bundle's `--appimage-extract`, which also wants `libfuse.so.2`.
 
-The preview before that confirm uses `unsquashfs`:
+The preview before that confirm uses `/usr/bin/python3` and `unsquashfs`:
 
 ```bash
-omarchy pkg add squashfs-tools
+omarchy pkg add python squashfs-tools
 ```
 
-Without `squashfs-tools`, confirm shows the filename and does not run the file.
+Without either package, the panel names it. Confirm shows the filename and does not run the file.
 
-A launcher can still be written without FUSE. Starting the app may then fail; the panel warns once.
+A launcher can still be written without FUSE. Starting the app may then fail. The panel warns, and the command is `omarchy pkg add fuse2`. `fuse3` does not provide `libfuse.so.2`.
 
 ## License
 

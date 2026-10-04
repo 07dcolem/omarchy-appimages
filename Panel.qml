@@ -20,6 +20,8 @@ Item {
   property bool focusPrimed: false
   property bool busy: false
   property bool fuseOk: true
+  property bool pythonOk: true
+  property bool squashfsOk: true
   property string mode: "list" // list | confirm | remove
   property string status: ""
   property var apps: []
@@ -119,6 +121,8 @@ Item {
       return
     }
     root.fuseOk = parsed.fuse
+    root.pythonOk = parsed.python
+    root.squashfsOk = parsed.unsquashfs
     root.apps = parsed.apps
     if (root.cursor >= root.apps.length) root.cursor = Math.max(0, root.apps.length - 1)
   }
@@ -551,7 +555,27 @@ Item {
             visible: !root.fuseOk
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "FUSE is missing. Install can still proceed. Running an AppImage may fail until fuse2 or fuse3 is installed."
+            text: "libfuse.so.2 is missing. Install can still proceed. An AppImage may not start until you install it (omarchy pkg add fuse2)."
+            color: Color.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Text {
+            visible: !root.pythonOk
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "python is missing. Confirm shows the filename until you install it (omarchy pkg add python)."
+            color: Color.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Text {
+            visible: !root.squashfsOk
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "squashfs-tools is missing. Confirm shows the filename until you install it (omarchy pkg add squashfs-tools)."
             color: Color.urgent
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall

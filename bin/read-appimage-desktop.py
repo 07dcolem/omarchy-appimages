@@ -53,9 +53,12 @@ def capture(proc, limit):
     os.set_blocking(fd, False)
     try:
         while True:
-            if len(data) > limit or time.monotonic() >= end:
+            if len(data) > limit:
                 terminate(proc)
                 raise ReadError("unsquashfs output exceeded its limit")
+            if time.monotonic() >= end:
+                terminate(proc)
+                raise ReadError("unsquashfs timed out")
             try:
                 chunk = os.read(fd, 65536)
             except BlockingIOError:

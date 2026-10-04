@@ -33,10 +33,17 @@ function parseList(text) {
   try {
     var data = JSON.parse(String(text || ""))
     if (!data || !Array.isArray(data.apps))
-      return { ok: false, fuse: true, apps: [], error: "Could not read installed AppImages" }
-    return { ok: true, fuse: data.fuse !== false, apps: data.apps, error: "" }
+      return { ok: false, fuse: true, python: true, unsquashfs: true, apps: [], error: "Could not read installed AppImages" }
+    return {
+      ok: true,
+      fuse: data.fuse !== false,
+      python: data.python !== false,
+      unsquashfs: data.unsquashfs !== false,
+      apps: data.apps,
+      error: ""
+    }
   } catch (e) {
-    return { ok: false, fuse: true, apps: [], error: "Could not read installed AppImages" }
+    return { ok: false, fuse: true, python: true, unsquashfs: true, apps: [], error: "Could not read installed AppImages" }
   }
 }
 
@@ -73,6 +80,14 @@ function parseInspect(text) {
   }
 }
 
+function attachWarning(plan, data) {
+  if (!data || typeof data.warning !== "string" || !data.warning) return plan
+  var warning = clip(data.warning, 240)
+  if (!plan.detail) plan.detail = warning
+  else if (plan.detail.indexOf(warning) < 0) plan.detail = clip(plan.detail + " " + warning, 480)
+  return plan
+}
+
 function planFromInspect(data) {
   var install = {
     replace: false,
@@ -87,25 +102,25 @@ function planFromInspect(data) {
   var name = clip(data.name, 120)
 
   if (data.payloadConflict === true) {
-    return {
+    return attachWarning({
       replace: false,
       enabled: false,
       title: "Cannot install this file",
       detail: "That destination is already used by another installed AppImage.",
       note: "Rename the file, or remove the app that uses it.",
       button: "Install"
-    }
+    }, data)
   }
 
   if (data.sameFile === true && data.existing === true) {
-    return {
+    return attachWarning({
       replace: false,
       enabled: false,
       title: "Already installed",
       detail: (name || "This app") + " is already this file.",
       note: "",
       button: "Install"
-    }
+    }, data)
   }
 
   if (data.existing === true) {
@@ -120,17 +135,15 @@ function planFromInspect(data) {
       detail += " The file in Applications is replaced."
     else
       detail += " The previous file is removed."
-    return {
+    return attachWarning({
       replace: true,
       enabled: true,
       title: "Update this AppImage?",
       detail: detail,
       note: "Update replaces the installed launcher.",
       button: "Update"
-    }
+    }, data)
   }
 
-  if (typeof data.warning === "string" && data.warning)
-    install.detail = clip(data.warning, 240)
-  return install
+  return attachWarning(install, data)
 }

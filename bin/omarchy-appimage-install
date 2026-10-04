@@ -135,10 +135,42 @@ print_inspect() {
     '{ok:true,source:$source,name:$name,version:$version,target:$target,oldVersion:$oldVersion,oldPayload:$oldPayload,existing:$existing,sameFile:$sameFile,payloadConflict:$payloadConflict,warning:$warning}'
 }
 
+# Preview tools. A non-empty FAKE_NO_PYTHON or FAKE_NO_UNSQUASHFS is a test
+# switch: it reports that program missing and cannot select a different one.
+# python3 on Arch is a symlink; unsquashfs must be a regular file, matching
+# read-appimage-desktop.py. Keep these checks in step with omarchy-appimage-list.
+python_ready() {
+  local real
+  [[ -n ${FAKE_NO_PYTHON-} ]] && return 1
+  [[ -x /usr/bin/python3 ]] || return 1
+  real=$(readlink -f -- /usr/bin/python3 2>/dev/null) || return 1
+  [[ $real == /usr/* && -f $real && ! -L $real && -x $real ]]
+}
+
+unsquashfs_ready() {
+  local real
+  [[ -n ${FAKE_NO_UNSQUASHFS-} ]] && return 1
+  [[ -f /usr/bin/unsquashfs && ! -L /usr/bin/unsquashfs && -x /usr/bin/unsquashfs ]] || return 1
+  real=$(readlink -f -- /usr/bin/unsquashfs 2>/dev/null) || return 1
+  [[ $real == /usr/* ]]
+}
+
 read_desktop_without_exec() {
   # Type-2 metadata for --inspect. unsquashfs reads the embedded filesystem.
   # The AppImage itself is not executed, and its mode is left unchanged.
-  local src="$1" helper out rc
+  local src="$1" helper out rc need_python=0 need_squashfs=0
+  python_ready || need_python=1
+  unsquashfs_ready || need_squashfs=1
+  if ((need_python || need_squashfs)); then
+    if ((need_python && need_squashfs)); then
+      METADATA_WARNING="Install python and squashfs-tools to read the name and version without running the file (omarchy pkg add python squashfs-tools)."
+    elif ((need_python)); then
+      METADATA_WARNING="Install python to read the name and version without running the file (omarchy pkg add python)."
+    else
+      METADATA_WARNING="Install squashfs-tools to read the name and version without running the file (omarchy pkg add squashfs-tools)."
+    fi
+    return 0
+  fi
   helper="${LAUNCH_BIN%/*}/read-appimage-desktop.py"
   out=$(mktemp)
   DESKTOP_READ=$out

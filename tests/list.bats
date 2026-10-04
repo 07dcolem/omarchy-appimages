@@ -22,6 +22,8 @@ DESK
   [[ $output == *'"payload":"'"$APPS_DIR/Foo.AppImage"'"'* ]]
   [[ $output != *"A Web App"* ]]
   [[ $output == *'"fuse":true'* ]]
+  [[ $output == *'"python":true'* ]]
+  [[ $output == *'"unsquashfs":true'* ]]
 }
 
 @test "list: an empty desktop dir is an empty app list" {
@@ -34,4 +36,20 @@ DESK
   FAKE_NO_FUSE=1 run omarchy-appimage-list
   [ "$status" -eq 0 ]
   [[ $output == *'"fuse":false'* ]]
+  [[ $output == *'"python":true'* ]]
+  [[ $output == *'"unsquashfs":true'* ]]
+}
+
+@test "list: reports python missing without hiding unsquashfs" {
+  FAKE_NO_PYTHON=1 run omarchy-appimage-list
+  [ "$status" -eq 0 ]
+  [[ $output == *'"python":false'* ]]
+  [[ $output == *'"unsquashfs":true'* ]]
+}
+
+@test "list: reports unsquashfs missing without hiding python" {
+  FAKE_NO_UNSQUASHFS=1 run omarchy-appimage-list
+  [ "$status" -eq 0 ]
+  [[ $output == *'"unsquashfs":false'* ]]
+  [[ $output == *'"python":true'* ]]
 }

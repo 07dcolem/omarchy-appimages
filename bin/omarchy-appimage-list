@@ -3,7 +3,8 @@
 # Copyright (c) 2026 Juan I. de Elizalde
 # Copyright (c) 2026 07dcolem
 #
-# Prints {"fuse":bool,"apps":[...]} for launchers written by omarchy-appimage-install.
+# Prints {"fuse":bool,"python":bool,"unsquashfs":bool,"apps":[...]} for launchers
+# written by omarchy-appimage-install.
 # A row qualifies when Exec names omarchy-launch-appimage and X-AppImage-Payload
 # is set. desktop_payload_path stays in step with the copy in omarchy-appimage-remove.
 
@@ -72,9 +73,36 @@ else
   apps='[]'
 fi
 
+# Keep these checks in step with omarchy-appimage-install. A non-empty
+# FAKE_NO_PYTHON or FAKE_NO_UNSQUASHFS is a test switch only.
+python_ready() {
+  local real
+  [[ -n ${FAKE_NO_PYTHON-} ]] && return 1
+  [[ -x /usr/bin/python3 ]] || return 1
+  real=$(readlink -f -- /usr/bin/python3 2>/dev/null) || return 1
+  [[ $real == /usr/* && -f $real && ! -L $real && -x $real ]]
+}
+
+unsquashfs_ready() {
+  local real
+  [[ -n ${FAKE_NO_UNSQUASHFS-} ]] && return 1
+  [[ -f /usr/bin/unsquashfs && ! -L /usr/bin/unsquashfs && -x /usr/bin/unsquashfs ]] || return 1
+  real=$(readlink -f -- /usr/bin/unsquashfs 2>/dev/null) || return 1
+  [[ $real == /usr/* ]]
+}
+
 fuse=true
+python=true
+unsquashfs=true
 if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
   fuse=false
 fi
+python_ready || python=false
+unsquashfs_ready || unsquashfs=false
 
-jq -nc --argjson fuse "$fuse" --argjson apps "$apps" '{fuse:$fuse,apps:$apps}'
+jq -nc \
+  --argjson fuse "$fuse" \
+  --argjson python "$python" \
+  --argjson unsquashfs "$unsquashfs" \
+  --argjson apps "$apps" \
+  '{fuse:$fuse,python:$python,unsquashfs:$unsquashfs,apps:$apps}'

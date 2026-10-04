@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.4 - 2026-10-04
+
+### Changed
+
+- The panel names a missing `python`, `squashfs-tools`, or `fuse2` package and shows the `omarchy pkg add` command, including on an update confirm. `fuse3` does not provide `libfuse.so.2`.
+- The preview also needs `/usr/bin/python3` (`omarchy pkg add python`). Without `python` or `squashfs-tools`, confirm uses the filename and still does not run the file.
+- Plugin version is 0.1.4.
+
 ## 0.1.3 - 2026-10-04
 
 ### Security

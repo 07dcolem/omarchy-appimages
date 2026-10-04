@@ -709,6 +709,68 @@ inspect_json() {
   jq -e '.name == "Link" and .warning != "" and .version == ""' <<<"$json"
 }
 
+@test "install: --inspect names python when python3 is missing and does not execute" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "3.0"
+  chmod -x "$HOME/Downloads/Foo.AppImage"
+  before=$(stat -c %a "$HOME/Downloads/Foo.AppImage")
+
+  run env FAKE_NO_PYTHON=1 omarchy-appimage-install --inspect "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+  [ "$(stat -c %a "$HOME/Downloads/Foo.AppImage")" = "$before" ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+
+  json=$(inspect_json)
+  jq -e '.name == "Foo" and .version == "" and (.warning | contains("omarchy pkg add python")) and (.warning | contains("squashfs-tools") | not)' <<<"$json"
+}
+
+@test "install: --inspect names squashfs-tools when unsquashfs is missing and does not execute" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "3.0"
+  chmod -x "$HOME/Downloads/Foo.AppImage"
+
+  run env FAKE_NO_UNSQUASHFS=1 omarchy-appimage-install --inspect "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+
+  json=$(inspect_json)
+  jq -e '.name == "Foo" and .version == "" and (.warning | contains("omarchy pkg add squashfs-tools")) and (.warning | contains("python") | not)' <<<"$json"
+}
+
+@test "install: --inspect names both preview packages when both are missing" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Foo.AppImage" --name "Foo" --version "3.0"
+
+  run env FAKE_NO_PYTHON=1 FAKE_NO_UNSQUASHFS=1 omarchy-appimage-install --inspect "$HOME/Downloads/Foo.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+
+  json=$(inspect_json)
+  jq -e '.warning | contains("omarchy pkg add python squashfs-tools")' <<<"$json"
+}
+
+@test "install: --inspect keeps a missing-python warning on an update" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  make_appimage "$HOME/Downloads/Old.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/Old.AppImage"
+  # The filename stem matches the installed launcher, so this is an update even
+  # though the preview cannot read the bundled name.
+  make_appimage "$HOME/Downloads/Same App.AppImage" --name "Same App" --version "2.0"
+  : >"$APPIMAGE_EXEC_LOG"
+
+  run env FAKE_NO_PYTHON=1 omarchy-appimage-install --inspect "$HOME/Downloads/Same App.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ -e "$APPS_DIR/Old.AppImage" ]
+  [ ! -e "$APPS_DIR/Same App.AppImage" ]
+
+  json=$(inspect_json)
+  jq -e '.existing == true and .name == "Same App" and .version == "" and (.warning | contains("omarchy pkg add python"))' <<<"$json"
+}
+
 @test "install: --inspect rejects a URL and a missing path" {
   run omarchy-appimage-install --inspect "https://example.com/Foo.AppImage"
   [ "$status" -ne 0 ]
