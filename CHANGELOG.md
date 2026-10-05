@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.5 - 2026-10-04
+
+### Changed
+
+- The preview reads a type-2 filesystem in place with `unsquashfs -o`. It does not copy the bundle, and a large local file is not rejected before its header is read.
+- A URL download stays capped at 500 MiB. That limit applies only to the download.
+- Confirm names the reason a preview could not be read, including on an update. A type-1 AppImage, a symlink, a missing root desktop entry, and an embedded filesystem whose size is out of range each say so.
+- When `X-AppImage-Version` is missing, confirm shows a version from the filename and says so. The desktop `Version=` key is not used.
+- When a bundle has more than one root desktop file, the preview prefers one that is not `NoDisplay=true`, then one whose `Exec` names `AppRun`, then the alphabetical name.
+- Plugin version is 0.1.5.
+
 ## 0.1.4 - 2026-10-04
 
 ### Changed

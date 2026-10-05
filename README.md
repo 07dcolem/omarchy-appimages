@@ -37,9 +37,12 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
-- Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs`. The AppImage runs when you click Install or Update. The preview does not move the file and does not mark it executable. If `python`, `squashfs-tools`, or `fuse2` is missing, the panel names that package and the `omarchy pkg add` command.
+- Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs -o` on the open file. The preview does not copy the file, move it, or mark it executable. A large local file is still previewed. The AppImage runs when you click Install or Update. If `python`, `squashfs-tools`, or `fuse2` is missing, the panel names that package and the `omarchy pkg add` command.
+- If the preview cannot read the file, confirm says why. That includes a type-1 AppImage, a symlink, a missing root desktop entry, and an embedded filesystem whose size is out of range. The same text is shown when the file would update an app you already have.
+- The version comes from `X-AppImage-Version`. When that key is missing, confirm uses a version token from the filename and says it came from the filename. The desktop `Version=` key is not an app version.
+- A bundle with more than one root desktop file uses one that is not hidden, then one whose `Exec` names `AppRun`, then the alphabetical name.
 - If the app is not installed yet, confirm installs it. Install **moves** the file. It does not copy it.
-- If that app is already installed, confirm offers to update it and names the old and new versions when the bundles have them. Update replaces the launcher. A different filename removes the previous file. The same filename replaces the file in Applications.
+- If that app is already installed, confirm offers to update it and names the old and new versions when it has them. A version taken from a filename is labeled. Update replaces the launcher. A different filename removes the previous file. The same filename replaces the file in Applications.
 - Dropping the file that is already installed leaves it in place.
 - If the destination filename belongs to a different installed app, confirm explains that and does not install it.
 - Each row: open, or remove (launcher + icon + payload). Keep file drops the launcher and icon only.
@@ -69,12 +72,12 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 - A URL install accepts only `https://`. `http://` and any other scheme are rejected, and redirects off HTTPS are refused.
 - The expected SHA-256 is `--sha256=<64 lowercase hex>` or `OMARCHY_APPIMAGE_SHA256`. It is checked before the bundle is executed. A mismatch deletes the download.
 - Non-interactive URL installs also require `--confirm-exec` before the file is marked executable or `--appimage-extract` runs. The interactive CLI asks instead, showing the URL, destination name, size, and digest.
-- Downloads stop after 15 seconds to connect, 120 seconds overall, or 500 MiB.
+- Downloads stop after 15 seconds to connect, 120 seconds overall, or 500 MiB. That 500 MiB cap is only for a URL download. A local preview has no whole-file size cap.
 - The panel, the bar drop target, and Add install a local `.AppImage` only. They do not download a URL.
 
 ## Scope
 
-v0.1.4: install, update, list, open, remove. URL installs are https-only and require a SHA-256. The pre-install preview reads metadata without running the AppImage. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
+v0.1.5: install, update, list, open, remove. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 

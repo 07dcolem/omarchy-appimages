@@ -21,7 +21,8 @@ APPIMAGE_DIR="$HOME/Applications"
 ICON_BASE="$HOME/.local/share/icons/hicolor"
 DESKTOP_DIR="$HOME/.local/share/applications"
 
-# 500 MiB. curl refuses a larger Content-Length and stops a body past the cap.
+# 500 MiB, for a URL download only. The local preview does not use this number.
+# curl refuses a larger Content-Length and stops a body past the cap.
 URL_MAX_BYTES=524288000
 URL_CONNECT_TIMEOUT=15
 URL_MAX_TIME=120
@@ -132,7 +133,9 @@ print_inspect() {
     --argjson sameFile "$same_json" \
     --argjson payloadConflict "$conflict_json" \
     --arg warning "$METADATA_WARNING" \
-    '{ok:true,source:$source,name:$name,version:$version,target:$target,oldVersion:$oldVersion,oldPayload:$oldPayload,existing:$existing,sameFile:$sameFile,payloadConflict:$payloadConflict,warning:$warning}'
+    --arg versionSource "$VERSION_SOURCE" \
+    --arg oldVersionSource "$OLD_VERSION_SOURCE" \
+    '{ok:true,source:$source,name:$name,version:$version,versionSource:$versionSource,target:$target,oldVersion:$oldVersion,oldVersionSource:$oldVersionSource,oldPayload:$oldPayload,existing:$existing,sameFile:$sameFile,payloadConflict:$payloadConflict,warning:$warning}'
 }
 
 # Preview tools. A non-empty FAKE_NO_PYTHON or FAKE_NO_UNSQUASHFS is a test
@@ -173,11 +176,14 @@ read_desktop_without_exec() {
   fi
   helper="${LAUNCH_BIN%/*}/read-appimage-desktop.py"
   out=$(mktemp)
+  err=$(mktemp)
   DESKTOP_READ=$out
   set +e
-  /usr/bin/python3 -I -S "$helper" "$src" >"$out"
+  /usr/bin/python3 -I -S "$helper" "$src" >"$out" 2>"$err"
   rc=$?
   set -e
+  reason=$(head -c 240 -- "$err" | tr -d '\r\n')
+  rm -f -- "$err"
   if [[ $rc -eq 0 && -s $out ]]; then
     BUNDLED_DESKTOP=$out
     return 0
@@ -187,7 +193,7 @@ read_desktop_without_exec() {
   if [[ $rc -eq 3 ]]; then
     METADATA_WARNING="Install squashfs-tools to read the name and version without running the file (omarchy pkg add squashfs-tools)."
   else
-    METADATA_WARNING="Could not read the name and version without running this file. Confirm shows the filename."
+    METADATA_WARNING=$(preview_warning "$reason")
   fi
 }
 
@@ -271,6 +277,134 @@ icon_install_dir() {
 desktop_value() {
   [[ -n $BUNDLED_DESKTOP ]] || return 0
   sed -n "s/^$1=//p" "$BUNDLED_DESKTOP" | head -1
+}
+
+# Fixed sentences. The reader's stderr is matched, not copied into the dialog.
+preview_warning() {
+  case "$1" in
+  "not a little-endian ELF")
+    printf '%s\n' "This file is not a little-endian ELF. Confirm shows the filename."
+    ;;
+  "not a type-2 AppImage")
+    printf '%s\n' "This file is not a type-2 AppImage. Confirm shows the filename."
+    ;;
+  "unsupported ELF class")
+    printf '%s\n' "This file is not a supported ELF. Confirm shows the filename."
+    ;;
+  "ELF has no section table")
+    printf '%s\n' "This file has no ELF section table. Confirm shows the filename."
+    ;;
+  "truncated section header")
+    printf '%s\n' "This file's ELF section header is truncated. Confirm shows the filename."
+    ;;
+  "unreasonable section count")
+    printf '%s\n' "This file's ELF section count is out of range. Confirm shows the filename."
+    ;;
+  "squashfs offset is outside the file")
+    printf '%s\n' "The embedded filesystem offset is outside the file. Confirm shows the filename."
+    ;;
+  "truncated squashfs superblock")
+    printf '%s\n' "The embedded filesystem header is truncated. Confirm shows the filename."
+    ;;
+  "squashfs magic is missing")
+    printf '%s\n' "This file has no squashfs filesystem. Confirm shows the filename."
+    ;;
+  "squashfs inode count is out of range")
+    printf '%s\n' "The embedded filesystem inode count is out of range. Confirm shows the filename."
+    ;;
+  "squashfs block size is out of range")
+    printf '%s\n' "The embedded filesystem block size is out of range. Confirm shows the filename."
+    ;;
+  "squashfs compression is unknown")
+    printf '%s\n' "The embedded filesystem compression is unknown. Confirm shows the filename."
+    ;;
+  "squashfs size is out of range")
+    printf '%s\n' "The embedded filesystem size is out of range. Confirm shows the filename."
+    ;;
+  "unsquashfs output exceeded its limit")
+    printf '%s\n' "The desktop entry is too large to preview. Confirm shows the filename."
+    ;;
+  "unsquashfs timed out")
+    printf '%s\n' "Reading the desktop entry timed out. Confirm shows the filename."
+    ;;
+  "could not open the AppImage")
+    printf '%s\n' "This file could not be opened. Confirm shows the filename."
+    ;;
+  "AppImage path is not a regular file")
+    printf '%s\n' "This path is not a regular file. Confirm shows the filename."
+    ;;
+  "AppImage size is out of range")
+    printf '%s\n' "This file is empty. Confirm shows the filename."
+    ;;
+  "path is a symlink")
+    printf '%s\n' "This path is a symlink. Confirm shows the filename."
+    ;;
+  "no root desktop entry")
+    printf '%s\n' "This AppImage has no root desktop entry. Confirm shows the filename."
+    ;;
+  "could not list the AppImage filesystem")
+    printf '%s\n' "The embedded filesystem could not be listed. Confirm shows the filename."
+    ;;
+  "could not read the desktop entry")
+    printf '%s\n' "The root desktop entry could not be read. Confirm shows the filename."
+    ;;
+  "too many root desktop entries")
+    printf '%s\n' "This AppImage has too many root desktop entries. Confirm shows the filename."
+    ;;
+  *)
+    printf '%s\n' "Could not read the name and version without running this file. Confirm shows the filename."
+    ;;
+  esac
+}
+
+# A dotted numeric token from the filename, such as 1.2.3 in Name-1.2.3.AppImage.
+# Used only when the bundle has no X-AppImage-Version. Not the desktop Version= key.
+filename_version() {
+  local base stem token
+  base=$(basename -- "$1")
+  stem=${base%.*}
+  token=$(printf '%s\n' "$stem" | grep -oE '(^|[^A-Za-z0-9])v?[0-9]+([.][0-9]+)+' | tail -n 1 | grep -oE '[0-9]+([.][0-9]+)+' || true)
+  if [[ -n $token && ${#token} -le 40 && $token =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+    printf '%s\n' "$token"
+  fi
+  return 0
+}
+
+exec_names_apprun() {
+  local rest="$1" token base
+  while [[ -n $rest ]]; do
+    token=${rest%%[[:space:]]*}
+    rest=${rest#"$token"}
+    rest=${rest##[[:space:]]}
+    base=${token##*/}
+    [[ $base == AppRun ]] && return 0
+  done
+  return 1
+}
+
+# Same order as read-appimage-desktop.py: skip NoDisplay=true, then prefer an
+# Exec that names AppRun, then the C-locale alphabetical name.
+pick_root_desktop() {
+  local root="$1" file name hide apprun key best best_key line
+  best=""
+  best_key=""
+  while IFS= read -r -d '' file; do
+    name=$(basename -- "$file")
+    [[ $name == *.desktop && ${#name} -le 128 ]] || continue
+    [[ $name != -* && $name != .* && $name != */* && $name != *\\* ]] || continue
+    hide=0
+    apprun=1
+    line=$(sed -n 's/^NoDisplay=//p' "$file" | head -1)
+    [[ $line == true ]] && hide=1
+    line=$(sed -n 's/^Exec=//p' "$file" | head -1)
+    exec_names_apprun "$line" && apprun=0
+    key="${hide}${apprun}${name}"
+    if [[ -z $best_key ]] || LC_ALL=C bash -c '[[ $1 < $2 ]]' _ "$key" "$best_key"; then
+      best=$file
+      best_key=$key
+    fi
+  done < <(find "$root" -maxdepth 1 -type f -name '*.desktop' -print0 2>/dev/null)
+  printf '%s\n' "$best"
 }
 
 url_scheme() {
@@ -551,7 +685,7 @@ if [[ $INSPECT == true ]]; then
   if ((APPIMAGE_TYPE == 2)); then
     read_desktop_without_exec "$SOURCE_FILE"
   else
-    METADATA_WARNING="This AppImage does not include a desktop entry the preview can read. Confirm shows the filename."
+    METADATA_WARNING="This is a type-1 AppImage. Confirm shows the filename."
   fi
 else
   if [[ $DOWNLOADED == true ]]; then
@@ -571,8 +705,7 @@ else
   if ((APPIMAGE_TYPE == 2)); then
     if (cd "$WORKDIR" && "$EXTRACT_FILE" --appimage-extract >/dev/null 2>&1) \
       && [[ -d $WORKDIR/squashfs-root ]]; then
-      BUNDLED_DESKTOP=$(find "$WORKDIR/squashfs-root" -maxdepth 1 -name '*.desktop' 2>/dev/null \
-        | sort | head -1)
+      BUNDLED_DESKTOP=$(pick_root_desktop "$WORKDIR/squashfs-root")
     else
       # A type-2 bundle that will not extract is a real failure, not the expected
       # type-1 fallback: without its metadata the app is named after its filename
@@ -610,6 +743,8 @@ DESKTOP_FILE="$DESKTOP_DIR/$APP_NAME.desktop"
 OLD_PAYLOAD=""
 OLD_VERSION=""
 NEW_VERSION=$(desktop_value X-AppImage-Version)
+VERSION_SOURCE=""
+OLD_VERSION_SOURCE=""
 EXISTING=false
 PAYLOAD_CONFLICT=false
 SAME_FILE=false
@@ -618,6 +753,30 @@ if [[ -e $DESKTOP_FILE ]]; then
   EXISTING=true
   OLD_PAYLOAD=$(desktop_payload_path "$DESKTOP_FILE")
   OLD_VERSION=$(sed -n 's/^X-AppImage-Version=//p' "$DESKTOP_FILE" | head -1)
+fi
+
+# Filename tokens are a preview label only. They are not written as
+# X-AppImage-Version, and the desktop Version= key is not an app version.
+if [[ $INSPECT == true ]]; then
+  guessed=""
+  if [[ -n $NEW_VERSION ]]; then
+    VERSION_SOURCE=desktop
+  else
+    guessed=$(filename_version "$TARGET")
+    if [[ -n $guessed ]]; then
+      NEW_VERSION=$guessed
+      VERSION_SOURCE=filename
+    fi
+  fi
+  if [[ -n $OLD_VERSION ]]; then
+    OLD_VERSION_SOURCE=desktop
+  elif [[ -n $OLD_PAYLOAD ]]; then
+    guessed=$(filename_version "$OLD_PAYLOAD")
+    if [[ -n $guessed ]]; then
+      OLD_VERSION=$guessed
+      OLD_VERSION_SOURCE=filename
+    fi
+  fi
 fi
 
 if [[ $SOURCE_FILE -ef $TARGET ]]; then

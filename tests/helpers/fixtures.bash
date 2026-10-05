@@ -16,7 +16,8 @@
 #                             [--no-desktop] [--extra-desktop] [--icon-128]
 #                             [--icon-1024]
 #                             [--mime M] [--comment C] [--refuse-extract]
-#                             [--version V] [--diricon-plain]
+#                             [--version V] [--spec-version V] [--decoy-set]
+#                             [--bare-squashfs] [--diricon-plain]
 
 # A 1x1 PNG (no recognised hicolor size, so it lands in the 256x256 fallback) and
 # a real 128x128 one, for asserting size-aware icon filing.
@@ -32,6 +33,7 @@ make_appimage() {
   local name="Fixture App" categories="Utility;" wmclass="fixture-app"
   local icon_key="fixture-icon" type=2 want_icon=1 want_desktop=1 extra_desktop=0
   local icon_b64="$FIXTURE_ICON_1PX" mime="" comment="" refuse_extract=0 version=""
+  local spec_version="" decoy=0 bare_squashfs=0
   local diricon_plain=0
 
   while (($#)); do
@@ -92,6 +94,22 @@ make_appimage() {
       version="$2"
       shift 2
       ;;
+    # Desktop-file Version=, which is the file-spec version and not the app version.
+    --spec-version)
+      spec_version="$2"
+      shift 2
+      ;;
+    # Two extra root desktop files that sort ahead of the real entry.
+    --decoy-set)
+      decoy=1
+      shift
+      ;;
+    # A type-2 squashfs with no desktop file.
+    --bare-squashfs)
+      bare_squashfs=1
+      want_desktop=0
+      shift
+      ;;
     # .DirIcon as a plain regular file and no Icon= key, which is how a real
     # bundle drives the fallback branch. It carries no extension at all.
     --diricon-plain)
@@ -115,6 +133,7 @@ make_appimage() {
     [[ -n $categories ]] && desktop_text+="Categories=${categories}"$'\n'
     [[ -n $mime ]] && desktop_text+="MimeType=${mime}"$'\n'
     [[ -n $comment ]] && desktop_text+="Comment=${comment}"$'\n'
+    [[ -n $spec_version ]] && desktop_text+="Version=${spec_version}"$'\n'
     [[ -n $version ]] && desktop_text+="X-AppImage-Version=${version}"$'\n'
     [[ -n $wmclass ]] && desktop_text+="StartupWMClass=${wmclass}"$'\n'
     ((diricon_plain)) || desktop_text+="Icon=${icon_key}"$'\n'
@@ -139,6 +158,14 @@ make_appimage() {
       if ((extra_desktop)); then
         # A second top-level entry, to prove selection is deterministic.
         printf '  printf "[Desktop Entry]\\nName=Zzz Decoy\\n" >squashfs-root/zzz-decoy.desktop\n'
+      fi
+      if ((decoy)); then
+        printf '  cat >squashfs-root/aaa-hidden.desktop <<'"'"'DESK'"'"'\n'
+        printf '%s' $'[Desktop Entry]\nName=Hidden Handler\nNoDisplay=true\nExec=AppRun\nType=Application\n'
+        echo 'DESK'
+        printf '  cat >squashfs-root/bbb-handler.desktop <<'"'"'DESK'"'"'\n'
+        printf '%s' $'[Desktop Entry]\nName=Url Handler\nExec=xdg-open %u\nType=Application\n'
+        echo 'DESK'
       fi
       if ((want_icon)); then
         if ((diricon_plain)); then
@@ -187,12 +214,20 @@ CSRC
   chmod +x "$path"
 
   # --inspect reads this squashfs and must not execute the ELF above it.
-  if ((type == 2 && refuse_extract == 0 && want_desktop)); then
+  if ((type == 2 && refuse_extract == 0 && (want_desktop || bare_squashfs))); then
     local stage img offset size
     stage=$(mktemp -d)
     img=$(mktemp)
     rm -f "$img"
-    printf '%s' "$desktop_text" >"$stage/${icon_key}.desktop"
+    if ((want_desktop)); then
+      printf '%s' "$desktop_text" >"$stage/${icon_key}.desktop"
+    else
+      printf 'readme\n' >"$stage/README"
+    fi
+    if ((decoy)); then
+      printf '%s' $'[Desktop Entry]\nName=Hidden Handler\nNoDisplay=true\nExec=AppRun\nType=Application\n' >"$stage/aaa-hidden.desktop"
+      printf '%s' $'[Desktop Entry]\nName=Url Handler\nExec=xdg-open %u\nType=Application\n' >"$stage/bbb-handler.desktop"
+    fi
     mksquashfs "$stage" "$img" -comp gzip -noappend -all-root -no-progress -quiet >/dev/null
     offset=$(/usr/bin/python3 -I -S -c '
 import struct, sys

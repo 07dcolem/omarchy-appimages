@@ -2,9 +2,14 @@
 """Print one root desktop file from a type-2 AppImage without executing it.
 
 The AppImage runtime is an ELF. appimagetool stores the squashfs immediately
-after the section header table. This reads that filesystem with unsquashfs.
+after the section header table. unsquashfs reads that filesystem in place
+with -o. The bundle is not copied and is not executed.
+
+A download size cap is a separate policy and lives with the URL installer.
+This reader does not apply one to a local file.
 """
 
+import errno
 import fcntl
 import os
 import signal
@@ -12,13 +17,12 @@ import stat
 import struct
 import subprocess
 import sys
-import tempfile
 import time
 
-MAX_BYTES = 524288000
 MAX_DESKTOP = 65536
 MAX_INODES = 200000
 MAX_LIST = 1024 * 1024
+MAX_ROOT_DESKTOPS = 8
 TIMEOUT = 20
 UNSQUASHFS = "/usr/bin/unsquashfs"
 
@@ -78,12 +82,12 @@ def capture(proc, limit):
         proc.stdout.close()
 
 
-def run_unsquash(args, address_limit):
+def run_unsquash(args, image_fd, address_limit):
     def preexec():
         os.setsid()
         os.umask(0o077)
-        limit = (address_limit, address_limit)
         resource_set = __import__("resource")
+        limit = (address_limit, address_limit)
         resource_set.setrlimit(resource_set.RLIMIT_AS, limit)
         resource_set.setrlimit(resource_set.RLIMIT_CPU, (TIMEOUT, TIMEOUT))
 
@@ -92,6 +96,7 @@ def run_unsquash(args, address_limit):
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            pass_fds=(image_fd,),
             preexec_fn=preexec,
         )
     except FileNotFoundError:
@@ -133,6 +138,7 @@ def elf_squashfs_offset(fd):
         raise ReadError("unsupported ELF class")
     if e_shoff <= 0 or e_shentsize < 40:
         raise ReadError("ELF has no section table")
+    # e_shnum == 0 means the real count is sh_size of the first section header.
     if e_shnum == 0:
         os.lseek(fd, e_shoff, os.SEEK_SET)
         section = read_exact(fd, e_shentsize)
@@ -164,17 +170,6 @@ def squashfs_bytes(fd, offset, file_size):
     if used < 96 or offset + used > file_size:
         raise ReadError("squashfs size is out of range")
     return used
-
-
-def copy_range(fd, offset, nbytes, dest):
-    os.lseek(fd, offset, os.SEEK_SET)
-    left = nbytes
-    while left:
-        chunk = os.read(fd, min(1024 * 1024, left))
-        if not chunk:
-            raise ReadError("squashfs copy ended early")
-        os.write(dest, chunk)
-        left -= len(chunk)
 
 
 def desktop_name_ok(name):
@@ -213,16 +208,67 @@ def looks_like_desktop(data):
     return any(line.startswith(b"Name=") for line in data.splitlines())
 
 
+def desktop_entry_fields(data):
+    """First NoDisplay and Exec in the Desktop Entry group."""
+    nodisplay = False
+    exec_value = b""
+    seen_display = False
+    seen_exec = False
+    in_entry = False
+    started = False
+    for raw in data.splitlines():
+        line = raw.strip()
+        if line.startswith(b"[") and line.endswith(b"]"):
+            if started and in_entry:
+                break
+            in_entry = line == b"[Desktop Entry]"
+            started = True
+            continue
+        if not in_entry or line.startswith(b"#") or b"=" not in line:
+            continue
+        key, value = line.split(b"=", 1)
+        if key == b"NoDisplay" and not seen_display:
+            seen_display = True
+            nodisplay = value.strip().lower() == b"true"
+        elif key == b"Exec" and not seen_exec:
+            seen_exec = True
+            exec_value = value
+    return nodisplay, exec_value
+
+
+def exec_has_apprun(value):
+    for token in value.split():
+        if token.rsplit(b"/", 1)[-1] == b"AppRun":
+            return True
+    return False
+
+
+def choose_desktop(bodies):
+    """Prefer a visible entry whose Exec names AppRun, then the name."""
+    ranked = []
+    for name, body in bodies:
+        if not looks_like_desktop(body):
+            continue
+        nodisplay, exec_value = desktop_entry_fields(body)
+        ranked.append((1 if nodisplay else 0, 0 if exec_has_apprun(exec_value) else 1, name, body))
+    if not ranked:
+        return None
+    ranked.sort()
+    return ranked[0][3]
+
+
 def open_regular(path):
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     except OSError as err:
+        if err.errno == errno.ELOOP:
+            raise ReadError("path is a symlink") from err
         raise ReadError("could not open the AppImage") from err
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise ReadError("AppImage path is not a regular file")
-        if info.st_size <= 0 or info.st_size > MAX_BYTES:
+        if info.st_size <= 0:
             raise ReadError("AppImage size is out of range")
         flags = fcntl.fcntl(fd, fcntl.F_GETFL)
         fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
@@ -258,49 +304,53 @@ def main(argv):
             used = squashfs_bytes(fd, offset, file_size)
         except ReadError as err:
             die(2, str(err))
-        with tempfile.TemporaryDirectory(prefix="omarchy-appimage-") as temp:
-            os.chmod(temp, 0o700)
-            image = os.path.join(temp, "filesystem")
-            out = os.open(image, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_CLOEXEC, 0o600)
-            try:
-                copy_range(fd, offset, used, out)
-            finally:
-                os.close(out)
-            address_limit = min(800 * 1024 * 1024, max(256 * 1024 * 1024, used + 64 * 1024 * 1024))
-            common = [
-                UNSQUASHFS,
-                "-quiet",
-                "-no-progress",
-                "-processors",
-                "1",
-                "-mem",
-                "32M",
-                "-strict-errors",
-            ]
-            listing = run_unsquash(
-                common + ["-llc", "-max-depth", "1", image],
-                address_limit,
-            )
-            try:
-                rc, listed = capture(listing, MAX_LIST)
-            except (ReadError, subprocess.TimeoutExpired) as err:
-                die(2, str(err))
-            if rc != 0:
-                die(2, "could not list the AppImage filesystem")
-            names = root_desktop_names(listed.decode("utf-8", "replace"))
-            if not names:
-                die(2, "no root desktop entry")
+        address_limit = min(800 * 1024 * 1024, max(256 * 1024 * 1024, used + 64 * 1024 * 1024))
+        image = "/proc/self/fd/%d" % fd
+        common = [
+            UNSQUASHFS,
+            "-quiet",
+            "-no-progress",
+            "-processors",
+            "1",
+            "-mem",
+            "32M",
+            "-strict-errors",
+            "-o",
+            str(offset),
+        ]
+        listing = run_unsquash(
+            common + ["-llc", "-max-depth", "1", image],
+            fd,
+            address_limit,
+        )
+        try:
+            rc, listed = capture(listing, MAX_LIST)
+        except (ReadError, subprocess.TimeoutExpired) as err:
+            die(2, str(err))
+        if rc != 0:
+            die(2, "could not list the AppImage filesystem")
+        names = root_desktop_names(listed.decode("utf-8", "replace"))
+        if not names:
+            die(2, "no root desktop entry")
+        if len(names) > MAX_ROOT_DESKTOPS:
+            die(2, "too many root desktop entries")
+        bodies = []
+        for name in names:
             cat = run_unsquash(
-                common + ["-cat", "-no-wildcards", image, names[0]],
+                common + ["-cat", "-no-wildcards", image, name],
+                fd,
                 address_limit,
             )
             try:
                 rc, body = capture(cat, MAX_DESKTOP)
             except (ReadError, subprocess.TimeoutExpired) as err:
                 die(2, str(err))
-            if rc != 0 or not looks_like_desktop(body):
-                die(2, "could not read the desktop entry")
-            sys.stdout.buffer.write(body)
+            if rc == 0 and looks_like_desktop(body):
+                bodies.append((name, body))
+        chosen = choose_desktop(bodies)
+        if chosen is None:
+            die(2, "could not read the desktop entry")
+        sys.stdout.buffer.write(chosen)
     finally:
         os.close(fd)
 

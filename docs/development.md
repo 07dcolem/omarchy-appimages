@@ -89,9 +89,16 @@ Matches `/usr/share/omarchy/bin`.
 - The cleanup trap must delete a failed or partial staging file.
 - The panel and the bar drop target pass local paths only. They do not download
   URLs. A chosen local file is read with `--inspect` before confirm. `--inspect`
-  reads a type-2 desktop entry with `/usr/bin/python3` and `/usr/bin/unsquashfs`
-  and does not run the file, move it, or mark it executable. A missing program
-  is named in the panel, with `omarchy pkg add`. Confirm then installs, or passes
+  reads a type-2 desktop entry with `/usr/bin/python3` and `/usr/bin/unsquashfs -o`
+  on the already-opened file. It does not copy the bundle to `/tmp`, run the
+  file, move it, or mark it executable. There is no whole-file size cap on that
+  read. `URL_MAX_BYTES` (500 MiB) applies only to `curl --max-filesize`.
+  A missing program is named in the panel, with `omarchy pkg add`. Confirm shows
+  the reader's reason when the preview fails, including on an update. When
+  `X-AppImage-Version` is missing, the version shown there may be a filename
+  token and is labeled as such. The desktop `Version=` key is not used. Several
+  root desktop files are ordered by not `NoDisplay=true`, then an `Exec` that
+  names `AppRun`, then the alphabetical name. Confirm then installs, or passes
   `--replace` when that app name is already installed. That install still runs
   `--appimage-extract` after the click. Do not make the plugin run
   `omarchy pkg add`.

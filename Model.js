@@ -88,6 +88,13 @@ function attachWarning(plan, data) {
   return plan
 }
 
+function filenameNote(newFromFile, oldFromFile) {
+  if (newFromFile && oldFromFile) return " Both versions are from the filename."
+  if (newFromFile) return " The new version is from the filename."
+  if (oldFromFile) return " The installed version is from the filename."
+  return ""
+}
+
 function planFromInspect(data) {
   var install = {
     replace: false,
@@ -100,6 +107,8 @@ function planFromInspect(data) {
   if (!data || data.ok !== true) return install
 
   var name = clip(data.name, 120)
+  var newFromFile = data.versionSource === "filename"
+  var oldFromFile = data.oldVersionSource === "filename"
 
   if (data.payloadConflict === true) {
     return attachWarning({
@@ -131,6 +140,7 @@ function planFromInspect(data) {
     if (oldVersion && newVersion) detail = "Updates " + subject + " from " + oldVersion + " to " + newVersion + "."
     else if (newVersion) detail = "Updates " + subject + " to " + newVersion + "."
     else if (oldVersion) detail = "Updates " + subject + " (" + oldVersion + ")."
+    detail += filenameNote(newFromFile && newVersion !== "", oldFromFile && oldVersion !== "")
     if (data.oldPayload && data.target && data.oldPayload === data.target)
       detail += " The file in Applications is replaced."
     else
@@ -145,5 +155,9 @@ function planFromInspect(data) {
     }, data)
   }
 
+  if (newFromFile) {
+    var named = clip(data.version, 80)
+    if (named) install.detail = "Version " + named + " is from the filename."
+  }
   return attachWarning(install, data)
 }

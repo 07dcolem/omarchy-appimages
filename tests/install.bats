@@ -691,7 +691,7 @@ inspect_json() {
   [ ! -s "$APPIMAGE_EXEC_LOG" ]
 
   json=$(inspect_json)
-  jq -e '.name == "Legacy" and .version == "" and .warning != ""' <<<"$json"
+  jq -e '.name == "Legacy" and .version == "" and .versionSource == "" and .warning == "This is a type-1 AppImage. Confirm shows the filename."' <<<"$json"
 }
 
 @test "install: --inspect does not follow a symlink into the bundle" {
@@ -706,7 +706,7 @@ inspect_json() {
   [ -x "$HOME/Downloads/Foo.AppImage" ]
 
   json=$(inspect_json)
-  jq -e '.name == "Link" and .warning != "" and .version == ""' <<<"$json"
+  jq -e '.name == "Link" and .version == "" and .warning == "This path is a symlink. Confirm shows the filename."' <<<"$json"
 }
 
 @test "install: --inspect names python when python3 is missing and does not execute" {
@@ -769,6 +769,165 @@ inspect_json() {
 
   json=$(inspect_json)
   jq -e '.existing == true and .name == "Same App" and .version == "" and (.warning | contains("omarchy pkg add python"))' <<<"$json"
+}
+
+@test "install: --inspect of a large file does not copy it and does not run it" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Big-3.1.4.AppImage" --name "Big" --version "9.0"
+  chmod -x "$HOME/Downloads/Big-3.1.4.AppImage"
+  truncate -s 600M "$HOME/Downloads/Big-3.1.4.AppImage"
+  [ "$(stat -c %s "$HOME/Downloads/Big-3.1.4.AppImage")" -gt 524288000 ]
+
+  preview_tmp="$TESTROOT/preview-tmp"
+  mkdir -p "$preview_tmp"
+  before=$(find /tmp -name 'omarchy-appimage-*' -print 2>/dev/null | sort)
+
+  run env TMPDIR="$preview_tmp" omarchy-appimage-install --inspect "$HOME/Downloads/Big-3.1.4.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -x "$HOME/Downloads/Big-3.1.4.AppImage" ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ -z "$(find "$preview_tmp" -mindepth 1 -print)" ]
+  after=$(find /tmp -name 'omarchy-appimage-*' -print 2>/dev/null | sort)
+  [ "$before" = "$after" ]
+
+  json=$(inspect_json)
+  jq -e '.name == "Big" and .version == "9.0" and .versionSource == "desktop" and .warning == ""' <<<"$json"
+}
+
+@test "install: --inspect labels a filename version and ignores Version=" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Northwind-2.4.1.AppImage" --name "Northwind" --spec-version "1.0"
+  chmod -x "$HOME/Downloads/Northwind-2.4.1.AppImage"
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Northwind-2.4.1.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -x "$HOME/Downloads/Northwind-2.4.1.AppImage" ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+
+  json=$(inspect_json)
+  jq -e '.name == "Northwind" and .version == "2.4.1" and .versionSource == "filename" and .warning == ""' <<<"$json"
+}
+
+@test "install: --inspect keeps X-AppImage-Version ahead of the filename" {
+  make_appimage "$HOME/Downloads/App-1.0.AppImage" --name "Same App" --version "9.9" --spec-version "1.0"
+  run omarchy-appimage-install --inspect "$HOME/Downloads/App-1.0.AppImage"
+  [ "$status" -eq 0 ]
+  json=$(inspect_json)
+  jq -e '.version == "9.9" and .versionSource == "desktop"' <<<"$json"
+}
+
+@test "install: --inspect labels filename versions on an update" {
+  make_appimage "$HOME/Downloads/Old-1.0.AppImage" --name "Same App"
+  omarchy-appimage-install "$HOME/Downloads/Old-1.0.AppImage"
+  make_appimage "$HOME/Downloads/Same App-2.5.0.AppImage" --name "Same App"
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Same App-2.5.0.AppImage"
+  [ "$status" -eq 0 ]
+  [ "$(desktop_key "$DESKTOP_DIR/Same App.desktop" X-AppImage-Version)" = "" ]
+  json=$(inspect_json)
+  jq -e '.existing == true and .name == "Same App" and .version == "2.5.0" and .versionSource == "filename" and .oldVersion == "1.0" and .oldVersionSource == "filename" and .warning == ""' <<<"$json"
+}
+
+@test "install: --inspect names a type-1 file on an update and does not run it" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  make_appimage "$HOME/Downloads/Old.AppImage" --name "Same App" --version "1.0"
+  omarchy-appimage-install "$HOME/Downloads/Old.AppImage"
+  make_appimage "$HOME/Downloads/Same App.AppImage" --type 1 --name "Real"
+  chmod -x "$HOME/Downloads/Same App.AppImage"
+  : >"$APPIMAGE_EXEC_LOG"
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Same App.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ ! -x "$HOME/Downloads/Same App.AppImage" ]
+  json=$(inspect_json)
+  jq -e '.existing == true and .name == "Same App" and .version == "" and .warning == "This is a type-1 AppImage. Confirm shows the filename."' <<<"$json"
+}
+
+@test "install: --inspect says when the embedded filesystem size is out of range" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Fat.AppImage" --name "Fat" --version "1.0"
+  chmod -x "$HOME/Downloads/Fat.AppImage"
+  /usr/bin/python3 -I -S - "$HOME/Downloads/Fat.AppImage" <<'PY'
+import pathlib, struct, sys
+path = pathlib.Path(sys.argv[1])
+data = bytearray(path.read_bytes())
+idx = data.find(b"hsqs")
+if idx < 0:
+    raise SystemExit("no squashfs")
+struct.pack_into("<Q", data, idx + 40, len(data))
+path.write_bytes(data)
+PY
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Fat.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ ! -x "$HOME/Downloads/Fat.AppImage" ]
+  json=$(inspect_json)
+  jq -e '.name == "Fat" and .warning == "The embedded filesystem size is out of range. Confirm shows the filename."' <<<"$json"
+}
+
+@test "install: --inspect says when a bundle has no root desktop entry" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Empty.AppImage" --bare-squashfs
+  chmod -x "$HOME/Downloads/Empty.AppImage"
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Empty.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  json=$(inspect_json)
+  jq -e '.name == "Empty" and .warning == "This AppImage has no root desktop entry. Confirm shows the filename."' <<<"$json"
+}
+
+@test "install: --inspect prefers a visible AppRun desktop over an earlier handler" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Chosen.AppImage" --name "Chosen" --decoy-set
+  chmod -x "$HOME/Downloads/Chosen.AppImage"
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Chosen.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  json=$(inspect_json)
+  jq -e '.name == "Chosen" and .warning == ""' <<<"$json"
+
+  run omarchy-appimage-install "$HOME/Downloads/Chosen.AppImage"
+  [ "$status" -eq 0 ]
+  [ -f "$DESKTOP_DIR/Chosen.desktop" ]
+  [ ! -e "$DESKTOP_DIR/Url Handler.desktop" ]
+  [ ! -e "$DESKTOP_DIR/Hidden Handler.desktop" ]
+}
+
+@test "install: --inspect still reads a bundle whose ELF section count is zero" {
+  export APPIMAGE_EXEC_LOG="$TESTROOT/exec.log"
+  : >"$APPIMAGE_EXEC_LOG"
+  make_appimage "$HOME/Downloads/Counted.AppImage" --name "Counted" --version "4.0"
+  chmod -x "$HOME/Downloads/Counted.AppImage"
+  /usr/bin/python3 -I -S - "$HOME/Downloads/Counted.AppImage" <<'PY'
+import pathlib, struct, sys
+path = pathlib.Path(sys.argv[1])
+data = bytearray(path.read_bytes())
+if data[4] != 2:
+    raise SystemExit("expected ELF64")
+e_shoff = struct.unpack_from("<Q", data, 40)[0]
+e_shentsize = struct.unpack_from("<H", data, 58)[0]
+e_shnum = struct.unpack_from("<H", data, 60)[0]
+if e_shnum == 0 or e_shentsize < 64:
+    raise SystemExit("fixture is not a normal ELF64")
+struct.pack_into("<Q", data, e_shoff + 32, e_shnum)
+struct.pack_into("<H", data, 60, 0)
+path.write_bytes(data)
+PY
+
+  run omarchy-appimage-install --inspect "$HOME/Downloads/Counted.AppImage"
+  [ "$status" -eq 0 ]
+  [ ! -s "$APPIMAGE_EXEC_LOG" ]
+  [ ! -x "$HOME/Downloads/Counted.AppImage" ]
+  json=$(inspect_json)
+  jq -e '.name == "Counted" and .version == "4.0" and .versionSource == "desktop" and .warning == ""' <<<"$json"
 }
 
 @test "install: --inspect rejects a URL and a missing path" {
