@@ -1,0 +1,647 @@
+#!/bin/bash
+
+# Copyright (c) 2026 07dcolem
+
+# omarchy:summary=Open an AppImage in the panel, or register that association
+# omarchy:args=[--on|--off|--remove|--apply <token> <on|off> [stamp]|--release <token>|<path-or-file-uri>]
+
+set -e
+
+# Registers this plugin as the default opener for application/vnd.appimage only.
+# A double-click reaches cmd_open, which summons the panel and returns. It does
+# not mark the file executable and does not run it. Install and Update do that.
+
+MIME_TYPE=application/vnd.appimage
+DESKTOP_ID=07dcolem-appimages-open.desktop
+PLUGIN_ID=07dcolem.appimages
+MIME_PACKAGE=07dcolem-appimages.xml
+
+die() {
+  echo "omarchy-appimage-open: $*" >&2
+  exit 1
+}
+
+usage() {
+  echo "Usage: omarchy-appimage-open [--on|--off|--remove|--apply TOKEN on|off [STAMP]|--release TOKEN|<path>]" >&2
+  exit 2
+}
+
+script_path() {
+  local source=${BASH_SOURCE[0]}
+  local dir
+  while [[ -L $source ]]; do
+    dir=$(cd -P "$(dirname -- "$source")" && pwd)
+    source=$(readlink -- "$source")
+    [[ $source != /* ]] && source=$dir/$source
+  done
+  printf '%s' "$(cd -P "$(dirname -- "$source")" && pwd)/$(basename -- "$source")"
+}
+
+require_home() {
+  [[ -n ${HOME-} && $HOME == /* ]] || die "HOME must be an absolute path"
+}
+
+config_home() {
+  if [[ -n ${XDG_CONFIG_HOME-} ]]; then
+    [[ $XDG_CONFIG_HOME == /* ]] || die "XDG_CONFIG_HOME must be absolute"
+    printf '%s' "$XDG_CONFIG_HOME"
+  else
+    printf '%s' "$HOME/.config"
+  fi
+}
+
+data_home() {
+  if [[ -n ${XDG_DATA_HOME-} ]]; then
+    [[ $XDG_DATA_HOME == /* ]] || die "XDG_DATA_HOME must be absolute"
+    printf '%s' "$XDG_DATA_HOME"
+  else
+    printf '%s' "$HOME/.local/share"
+  fi
+}
+
+state_home() {
+  if [[ -n ${XDG_STATE_HOME-} ]]; then
+    [[ $XDG_STATE_HOME == /* ]] || die "XDG_STATE_HOME must be absolute"
+    printf '%s' "$XDG_STATE_HOME"
+  else
+    printf '%s' "$HOME/.local/state"
+  fi
+}
+
+mimeapps_file() {
+  printf '%s' "$(config_home)/mimeapps.list"
+}
+
+desktop_file() {
+  printf '%s' "$(data_home)/applications/$DESKTOP_ID"
+}
+
+mime_package_file() {
+  printf '%s' "$(data_home)/mime/packages/$MIME_PACKAGE"
+}
+
+state_dir() {
+  printf '%s' "$(state_home)/07dcolem-appimages"
+}
+
+state_file() {
+  printf '%s' "$(state_dir)/association.json"
+}
+
+generation_file() {
+  printf '%s' "$(state_dir)/generation"
+}
+
+# The leaf we create must be a real directory. A symlink there would send the
+# saved handler and the lock at a path we did not choose.
+ensure_state_dir() {
+  local root dir
+  root=$(state_home)
+  dir=$(state_dir)
+  [[ -L $dir ]] && die "refusing a symlink at $dir"
+  mkdir -p -- "$root"
+  if [[ ! -d $dir ]]; then
+    mkdir -m 700 -- "$dir"
+  fi
+  [[ -d $dir && ! -L $dir ]] || die "could not prepare $dir"
+  chmod 700 -- "$dir"
+}
+
+with_lock() {
+  local dir lock
+  ensure_state_dir
+  dir=$(state_dir)
+  lock=$dir/lock
+  [[ -L $lock ]] && die "refusing a symlink at $lock"
+  umask 077
+  if [[ ! -e $lock ]]; then
+    : >"$lock"
+  fi
+  [[ -f $lock && ! -L $lock ]] || die "refusing lock $lock"
+  exec 9>>"$lock"
+  flock 9
+}
+
+atomic_install() {
+  local dest=$1 mode=$2 body=$3
+  local dir tmp
+  dir=$(dirname -- "$dest")
+  mkdir -p -- "$dir"
+  [[ -d $dir ]] || die "could not prepare $dir"
+  [[ -L $dest ]] && die "refusing a symlink at $dest"
+  umask 077
+  tmp=$(mktemp -p "$dir" ".$(basename -- "$dest").XXXXXXXXXX")
+  chmod "$mode" "$tmp"
+  printf '%s\n' "$body" >"$tmp"
+  mv -f -T -- "$tmp" "$dest"
+}
+
+desktop_exec_arg() {
+  local escaped
+  # SC2016: the single quotes are correct. $ and ` must reach sed literally.
+  # shellcheck disable=SC2016
+  escaped=$(printf '%s' "$1" \
+    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/`/\\`/g' -e 's/\$/\\$/g' -e 's/%/%%/g')
+  printf '"%s"' "$escaped"
+}
+
+# A desktop id, or several separated by ';', as mimeapps.list stores them.
+safe_handler_list() {
+  local value=$1
+  local pattern='^[A-Za-z0-9_.+-]+\.desktop(;[A-Za-z0-9_.+-]+\.desktop)*;?$'
+  [[ -z $value ]] && return 0
+  [[ $value =~ $pattern ]]
+}
+
+first_handler() {
+  local value=$1
+  value=${value%%;*}
+  printf '%s' "$value"
+}
+
+read_user_default() {
+  local file
+  file=$(mimeapps_file)
+  [[ -e $file ]] || return 0
+  [[ -L $file ]] && die "refusing a symlink at $file"
+  [[ -f $file ]] || die "mimeapps.list is not a regular file"
+  local size
+  size=$(stat -c '%s' -- "$file")
+  [[ $size -le 1048576 ]] || die "mimeapps.list is too large"
+  awk -v mime="$MIME_TYPE" '
+    BEGIN { section = 0 }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      if (substr(line, 1, 1) == "[") {
+        section = (line == "[Default Applications]")
+        next
+      }
+      if (section && index(line, mime "=") == 1) {
+        print substr(line, length(mime) + 2)
+        exit
+      }
+    }
+  ' "$file"
+}
+
+write_user_default() {
+  local value=$1
+  local file dir body
+  safe_handler_list "$value" || die "refusing an unexpected handler value"
+  file=$(mimeapps_file)
+  dir=$(dirname -- "$file")
+  if [[ ! -e $file && -z $value ]]; then
+    return 0
+  fi
+  if [[ -e $file ]]; then
+    [[ -L $file ]] && die "refusing a symlink at $file"
+    [[ -f $file ]] || die "mimeapps.list is not a regular file"
+    local size
+    size=$(stat -c '%s' -- "$file")
+    [[ $size -le 1048576 ]] || die "mimeapps.list is too large"
+    body=$(awk -v mime="$MIME_TYPE" -v value="$value" '
+      BEGIN { section = 0; wrote = 0 }
+      {
+        line = $0
+        sub(/\r$/, "", line)
+        if (substr(line, 1, 1) == "[") {
+          if (section && !wrote && value != "") {
+            print mime "=" value
+            wrote = 1
+          }
+          section = (line == "[Default Applications]")
+          print line
+          next
+        }
+        if (section && index(line, mime "=") == 1) {
+          if (!wrote && value != "") {
+            print mime "=" value
+            wrote = 1
+          }
+          next
+        }
+        print line
+      }
+      END {
+        if (!wrote && value != "") {
+          if (!section) print "[Default Applications]"
+          print mime "=" value
+        }
+      }
+    ' "$file")
+  else
+    body="[Default Applications]
+$MIME_TYPE=$value"
+  fi
+  mkdir -p -- "$dir"
+  atomic_install "$file" 644 "$body"
+}
+
+mime_type_known() {
+  local dir spec
+  local -a roots=()
+  roots+=("$(data_home)")
+  spec=${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
+  local IFS=:
+  read -r -a roots <<<"${roots[*]}:$spec"
+  for dir in "${roots[@]}"; do
+    [[ -n $dir ]] || continue
+    if [[ -f $dir/mime/application/vnd.appimage.xml && ! -L $dir/mime/application/vnd.appimage.xml ]]; then
+      return 0
+    fi
+    if [[ -f $dir/mime/types && ! -L $dir/mime/types ]] && grep -Fxq "$MIME_TYPE" "$dir/mime/types"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+mime_package_body() {
+  cat <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.appimage">
+    <comment>AppImage application bundle</comment>
+    <glob weight="60" pattern="*.AppImage"/>
+    <glob weight="60" pattern="*.appimage"/>
+    <magic priority="50">
+      <match type="string" value="ELF" offset="1">
+        <match type="byte" value="0x41" offset="8">
+          <match type="byte" value="0x49" offset="9">
+            <match type="byte" value="0x02" offset="10"/>
+          </match>
+        </match>
+      </match>
+    </magic>
+  </mime-type>
+</mime-info>
+XML
+}
+
+sha256_text() {
+  printf '%s\n' "$1" | sha256sum | awk 'NR == 1 { print $1 }'
+}
+
+read_state_field() {
+  local key=$1 file raw
+  file=$(state_file)
+  [[ -e $file ]] || return 0
+  [[ -f $file && ! -L $file ]] || die "refusing state file $file"
+  raw=$(head -c 65537 -- "$file")
+  [[ ${#raw} -le 65536 ]] || die "state file is too large"
+  jq -r --arg key "$key" '.[$key] // ""' <<<"$raw"
+}
+
+write_state() {
+  local previous=$1 mime_added=$2 mime_sha=$3
+  local body
+  safe_handler_list "$previous" || die "refusing an unexpected saved handler"
+  [[ $mime_added == 1 || -z $mime_added ]] || die "refusing an unexpected mime record"
+  body=$(jq -nc \
+    --arg previous "$previous" \
+    --arg mimeAdded "$mime_added" \
+    --arg mimeSha "$mime_sha" \
+    '{previous:$previous,mimeAdded:$mimeAdded,mimeSha:$mimeSha}')
+  atomic_install "$(state_file)" 600 "$body"
+}
+
+clear_state() {
+  local file
+  file=$(state_file)
+  [[ -L $file ]] && die "refusing a symlink at $file"
+  rm -f -- "$file"
+}
+
+refresh_desktop_database() {
+  local dir
+  dir="$(data_home)/applications"
+  [[ -d $dir ]] || return 0
+  update-desktop-database "$dir" >/dev/null 2>&1 || true
+}
+
+refresh_mime_database() {
+  local dir
+  dir="$(data_home)/mime"
+  [[ -d $dir ]] || return 0
+  update-mime-database "$dir" >/dev/null 2>&1 || true
+}
+
+install_mime_package_if_needed() {
+  local package body sha
+  MIME_ADDED=
+  MIME_SHA=
+  mime_type_known && return 0
+  package=$(mime_package_file)
+  if [[ ! -e $package ]]; then
+    body=$(mime_package_body)
+    sha=$(sha256_text "$body")
+    atomic_install "$package" 644 "$body"
+    MIME_ADDED=1
+    MIME_SHA=$sha
+  fi
+  # A package that was already at this path is not ours. Refresh the database
+  # either way, and leave a file we did not write for the owner to remove.
+  refresh_mime_database
+}
+
+remove_mime_package_if_ours() {
+  local added sha package current
+  added=$(read_state_field mimeAdded)
+  [[ $added == 1 ]] || return 0
+  sha=$(read_state_field mimeSha)
+  package=$(mime_package_file)
+  [[ -e $package ]] || return 0
+  [[ -f $package && ! -L $package ]] || return 0
+  current=$(sha256sum -- "$package" | awk 'NR == 1 { print $1 }')
+  [[ -n $sha && $current == "$sha" ]] || return 0
+  rm -f -- "$package"
+  refresh_mime_database
+}
+
+handler_body() {
+  local open_bin exec_field
+  open_bin=$(script_path)
+  [[ $open_bin == /* && $open_bin != *$'\n'* ]] || die "could not resolve this script"
+  exec_field=$(desktop_exec_arg "$open_bin")
+  cat <<DESKTOP
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AppImages
+NoDisplay=true
+MimeType=${MIME_TYPE};
+Exec=${exec_field} %u
+Terminal=false
+DESKTOP
+}
+
+write_handler() {
+  atomic_install "$(desktop_file)" 644 "$(handler_body)"
+}
+
+handler_is_ours() {
+  local file=$1 size
+  [[ -f $file && ! -L $file ]] || return 1
+  size=$(stat -c '%s' -- "$file")
+  [[ $size -le 8192 ]] || return 1
+  grep -qx 'NoDisplay=true' -- "$file" || return 1
+  grep -qx "MimeType=${MIME_TYPE};" -- "$file" || return 1
+  grep -F -q 'omarchy-appimage-open' -- "$file" || return 1
+  grep -F -q 'application/octet-stream' -- "$file" && return 1
+  grep -F -q 'application/x-executable' -- "$file" && return 1
+  return 0
+}
+
+remove_handler() {
+  local file
+  file=$(desktop_file)
+  [[ -e $file ]] || return 0
+  [[ -L $file ]] && die "refusing a symlink at $file"
+  handler_is_ours "$file" || return 0
+  rm -f -- "$file"
+}
+
+associate_on() {
+  local current previous added sha state
+  command -v jq >/dev/null || die "jq is required"
+  current=$(read_user_default)
+  safe_handler_list "$current" || die "refusing to edit an unexpected mimeapps entry"
+  state=$(state_file)
+  previous=
+  added=
+  sha=
+  # Keep the proof that we installed the mime package across a later --on.
+  # Replacing `previous` must not forget that, or --off would leave our file.
+  if [[ -f $state && ! -L $state ]]; then
+    added=$(read_state_field mimeAdded)
+    sha=$(read_state_field mimeSha)
+  fi
+  if [[ $(first_handler "$current") == "$DESKTOP_ID" && -f $state && ! -L $state ]]; then
+    previous=$(read_state_field previous)
+  else
+    if [[ $(first_handler "$current") == "$DESKTOP_ID" ]]; then
+      previous=
+    else
+      previous=$current
+    fi
+    install_mime_package_if_needed
+    if [[ ${MIME_ADDED-} == 1 ]]; then
+      added=1
+      sha=$MIME_SHA
+    fi
+  fi
+  safe_handler_list "$previous" || die "refusing an unexpected saved handler"
+  write_handler
+  write_state "$previous" "$added" "$sha"
+  write_user_default "$DESKTOP_ID"
+  refresh_desktop_database
+}
+
+associate_off() {
+  local current previous owned state
+  command -v jq >/dev/null || die "jq is required"
+  state=$(state_file)
+  [[ -e $state ]] || return 0
+  [[ -f $state && ! -L $state ]] || die "refusing state file $state"
+  current=$(read_user_default)
+  safe_handler_list "$current" || die "refusing to edit an unexpected mimeapps entry"
+  owned=$(first_handler "$current")
+  if [[ $owned == "$DESKTOP_ID" ]]; then
+    previous=$(read_state_field previous)
+    safe_handler_list "$previous" || die "refusing an unexpected saved handler"
+    write_user_default "$previous"
+  fi
+  remove_mime_package_if_ours
+  remove_handler
+  refresh_desktop_database
+  clear_state
+}
+
+valid_token() {
+  [[ $1 =~ ^[A-Za-z0-9]{8,80}$ ]]
+}
+
+write_generation() {
+  local token=$1 stamp=${2-}
+  local body=$token
+  [[ -n $stamp ]] && body=$token$'\n'$stamp
+  atomic_install "$(generation_file)" 600 "$body"
+}
+
+# First line is the token. The optional second line is a stamp. A later apply
+# with an older stamp is ignored so a widget that is going away cannot
+# overwrite the instance that replaced it.
+generation_line() {
+  local which=$1 file raw
+  file=$(generation_file)
+  [[ -e $file ]] || return 0
+  [[ -f $file && ! -L $file ]] || die "refusing generation file $file"
+  raw=$(head -c 128 -- "$file")
+  if [[ $which == stamp ]]; then
+    [[ $raw == *$'\n'* ]] || return 0
+    raw=${raw#*$'\n'}
+  fi
+  raw=${raw%%$'\n'*}
+  printf '%s' "$raw"
+}
+
+read_generation() {
+  generation_line token
+}
+
+read_generation_stamp() {
+  generation_line stamp
+}
+
+cmd_on() {
+  with_lock
+  associate_on
+}
+
+cmd_off() {
+  with_lock
+  associate_off
+}
+
+cmd_apply() {
+  local token=$1 mode=$2 stamp=${3-}
+  local current
+  valid_token "$token" || die "refusing that token"
+  case $mode in
+  on | off) ;;
+  *) die "association mode must be on or off" ;;
+  esac
+  if [[ -n $stamp && ! $stamp =~ ^[0-9]{1,18}$ ]]; then
+    die "refusing that stamp"
+  fi
+  with_lock
+  if [[ -n $stamp ]]; then
+    current=$(read_generation_stamp)
+    if [[ $current =~ ^[0-9]{1,18}$ && $current -gt $stamp ]]; then
+      return 0
+    fi
+  fi
+  write_generation "$token" "$stamp"
+  if [[ $mode == on ]]; then
+    associate_on
+  else
+    associate_off
+  fi
+}
+
+cmd_release() {
+  local token=$1 wait current
+  valid_token "$token" || die "refusing that token"
+  wait=${APPIMAGE_RELEASE_WAIT:-0.4}
+  [[ $wait =~ ^[0-9]+(\.[0-9]{1,3})?$ ]] || wait=0.4
+  sleep "$wait"
+  with_lock
+  current=$(read_generation)
+  [[ $current == "$token" ]] || return 0
+  associate_off
+}
+
+percent_decode() {
+  local input=$1 out="" i c hex n
+  local LC_ALL=C
+  n=${#input}
+  for ((i = 0; i < n; i++)); do
+    c=${input:i:1}
+    if [[ $c == % ]]; then
+      hex=${input:i+1:2}
+      [[ $hex =~ ^[0-9A-Fa-f]{2}$ ]] || return 1
+      # A decoded NUL would cut the path off inside the tools that follow.
+      [[ ${hex,,} == 00 ]] && return 1
+      printf -v c '%b' "\\x$hex"
+      i=$((i + 2))
+    fi
+    out+=$c
+  done
+  printf '%s' "$out"
+}
+
+decode_local() {
+  local raw=$1 rest host path decoded
+  [[ -n $raw && ${#raw} -le 4096 ]] || return 1
+  case $raw in
+  *$'\n'* | *$'\r'* | *$'\t'*) return 1 ;;
+  esac
+  case $raw in
+  file://*)
+    rest=${raw#file://}
+    case $rest in
+    *\?* | *\#*) return 1 ;;
+    /*)
+      path=$rest
+      ;;
+    *)
+      host=${rest%%/*}
+      [[ $rest == */* ]] || return 1
+      case $host in
+      localhost) ;;
+      *) return 1 ;;
+      esac
+      path=/${rest#*/}
+      ;;
+    esac
+    decoded=$(percent_decode "$path") || return 1
+    ;;
+  /*)
+    decoded=$raw
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+  [[ $decoded == /* && $decoded != *$'\n'* && ${#decoded} -le 4096 ]] || return 1
+  printf '%s' "$decoded"
+}
+
+cmd_open() {
+  local path payload
+  path=$(decode_local "$1") || die "refusing that location"
+  # lstat the final component. Do not realpath it: that would follow a symlink
+  # and open the target. Do not chmod and do not execute.
+  if [[ -L $path ]]; then
+    die "refusing a symlink"
+  fi
+  if [[ -e $path && ! -f $path ]]; then
+    die "refusing a path that is not a regular file"
+  fi
+  command -v jq >/dev/null || die "jq is required"
+  payload=$(jq -nc --arg path "$path" '{path:$path}') || die "could not build the panel payload"
+  command -v omarchy-shell >/dev/null || die "omarchy-shell is not available"
+  exec omarchy-shell shell summon "$PLUGIN_ID" "$payload"
+}
+
+require_home
+
+case ${1-} in
+--on)
+  [[ $# -eq 1 ]] || usage
+  cmd_on
+  ;;
+--off | --remove)
+  [[ $# -eq 1 ]] || usage
+  cmd_off
+  ;;
+--apply)
+  [[ $# -eq 3 || $# -eq 4 ]] || usage
+  cmd_apply "$2" "$3" "${4-}"
+  ;;
+--release)
+  [[ $# -eq 2 ]] || usage
+  cmd_release "$2"
+  ;;
+-h | --help)
+  usage
+  ;;
+-*)
+  usage
+  ;;
+*)
+  [[ $# -eq 1 ]] || usage
+  cmd_open "$1"
+  ;;
+esac

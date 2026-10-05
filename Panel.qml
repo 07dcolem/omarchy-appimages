@@ -48,6 +48,15 @@ Item {
   readonly property string installBin: binDir + "/omarchy-appimage-install"
   readonly property string removeBin: binDir + "/omarchy-appimage-remove"
   readonly property string launchBin: binDir + "/omarchy-launch-appimage"
+  readonly property string openBin: binDir + "/omarchy-appimage-open"
+
+  // Off until a saved boolean true is read. The host does not write this key
+  // on upgrade, and a missing key must not turn the association on.
+  property bool associationOn: false
+  property bool associationBusy: false
+  property int associationSerial: 0
+  property string associationErr: ""
+  property string associationOut: ""
 
   readonly property var barState: shell && shell.bar ? shell.bar : null
   readonly property string barPosition: barState && barState.position ? String(barState.position) : "top"
@@ -97,6 +106,85 @@ Item {
     removeProc.running = false
     hashProc.running = false
     inspectProc.running = false
+    root.associationSerial = root.associationSerial + 1
+    root.associationBusy = false
+    associationProc.running = false
+  }
+
+  function configText() {
+    try { return String(shellConfigFile.text() || "") } catch (e) { return "" }
+  }
+
+  // shell.json is the live entry. updateEntryInline replaces the whole entry,
+  // so the copy has to include every existing key. barConfig is a snapshot
+  // and is only the fallback before the file has loaded.
+  function currentEntry() {
+    var text = root.configText().trim()
+    if (text) {
+      try { return Model.layoutEntry(JSON.parse(text), root.pluginId) } catch (e) { return null }
+    }
+    var bar = root.shell && root.shell.barConfig ? root.shell.barConfig : null
+    return bar ? Model.layoutEntry(bar, root.pluginId) : null
+  }
+
+  function copyEntry() {
+    var entry = root.currentEntry()
+    var next = { id: root.pluginId }
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      for (var key in entry) {
+        if (key !== "id" && Object.prototype.hasOwnProperty.call(entry, key))
+          next[key] = entry[key]
+      }
+    }
+    return next
+  }
+
+  function pullAssociation() {
+    if (root.associationBusy) return
+    var entry = root.currentEntry()
+    root.associationOn = Model.openWithPanelEnabled(entry)
+  }
+
+  function setAssociation(enabled) {
+    if (root.associationBusy || associationProc.running) return
+    root.associationBusy = true
+    root.associationErr = ""
+    root.associationOut = ""
+    associationProc.serial = root.associationSerial
+    associationProc.wanted = enabled
+    associationProc.rollingBack = false
+    associationProc.command = [root.openBin, enabled ? "--on" : "--off"]
+    associationProc.running = true
+  }
+
+  function finishAssociation(code) {
+    if (associationProc.rollingBack) {
+      root.associationBusy = false
+      root.status = "Could not save the switch."
+      return
+    }
+    if (code !== 0) {
+      root.associationBusy = false
+      var err = Model.clip(String(root.associationErr || "").replace(/\n/g, " "), 180)
+      root.status = err || "Could not change the file association."
+      return
+    }
+    var next = root.copyEntry()
+    if (associationProc.wanted) next.openWithPanel = true
+    else delete next.openWithPanel
+    var seen = root.currentEntry() !== null
+    var wrote = false
+    if (root.shell && typeof root.shell.updateEntryInline === "function")
+      wrote = root.shell.updateEntryInline(root.pluginId, next) === true
+    if (wrote || seen) {
+      root.associationOn = associationProc.wanted
+      root.associationBusy = false
+      return
+    }
+    associationProc.rollingBack = true
+    associationProc.serial = root.associationSerial
+    associationProc.command = [root.openBin, associationProc.wanted ? "--off" : "--on"]
+    associationProc.running = true
   }
 
   function dismiss() {
@@ -390,6 +478,51 @@ Item {
     }
   }
 
+  Process {
+    id: associationProc
+    property int serial: 0
+    property bool wanted: false
+    property bool rollingBack: false
+    stdout: SplitParser {
+      onRead: function (line) {
+        if (root.associationOut.length >= 2000) return
+        root.associationOut = root.associationOut + line + "\n"
+      }
+    }
+    stderr: SplitParser {
+      onRead: function (line) {
+        if (root.associationErr.length >= 2000) return
+        root.associationErr = root.associationErr + line + "\n"
+      }
+    }
+    onExited: function (code) {
+      var serial = associationProc.serial
+      Qt.callLater(function () {
+        if (serial !== root.associationSerial) return
+        root.finishAssociation(code)
+      })
+    }
+  }
+
+  FileView {
+    id: shellConfigFile
+    path: {
+      var base = Quickshell.env("XDG_CONFIG_HOME")
+      if (!base) base = (Quickshell.env("HOME") || "") + "/.config"
+      return base + "/omarchy/shell.json"
+    }
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.pullAssociation()
+    onLoadFailed: root.pullAssociation()
+    onFileChanged: reload()
+  }
+
+  Connections {
+    target: root.shell
+    function onBarConfigChanged() { root.pullAssociation() }
+  }
+
   Timer {
     id: prime
     interval: 75
@@ -410,6 +543,7 @@ Item {
     Text {
       id: labelText
       anchors.centerIn: parent
+      textFormat: Text.PlainText
       text: button.label
       color: button.primary ? Color.background : Color.popups.text
       font.family: Style.font.family
@@ -522,6 +656,7 @@ Item {
               anchors.left: headerIcon.right
               anchors.leftMargin: Style.space(8)
               anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
               text: "AppImages"
               color: root.textColor
               font.family: root.fontFamily
@@ -555,6 +690,7 @@ Item {
             visible: !root.fuseOk
             width: parent.width
             wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
             text: "libfuse.so.2 is missing. Install can still proceed. An AppImage may not start until you install it (omarchy pkg add fuse2)."
             color: Color.urgent
             font.family: root.fontFamily
@@ -565,6 +701,7 @@ Item {
             visible: !root.pythonOk
             width: parent.width
             wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
             text: "python is missing. Confirm shows the filename until you install it (omarchy pkg add python)."
             color: Color.urgent
             font.family: root.fontFamily
@@ -575,6 +712,7 @@ Item {
             visible: !root.squashfsOk
             width: parent.width
             wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
             text: "squashfs-tools is missing. Confirm shows the filename until you install it (omarchy pkg add squashfs-tools)."
             color: Color.urgent
             font.family: root.fontFamily
@@ -591,6 +729,7 @@ Item {
               visible: root.apps.length === 0
               width: parent.width
               wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
               text: "Nothing installed yet. Drop an AppImage on the bar icon, or use Add."
               color: root.muted
               font.family: root.fontFamily
@@ -635,6 +774,7 @@ Item {
 
                   Text {
                     width: parent.width
+                    textFormat: Text.PlainText
                     text: row.modelData.name
                     color: root.textColor
                     font.family: root.fontFamily
@@ -645,6 +785,7 @@ Item {
                   Text {
                     width: parent.width
                     visible: row.modelData.comment && row.modelData.comment !== row.modelData.name
+                    textFormat: Text.PlainText
                     text: row.modelData.comment || ""
                     color: root.muted
                     font.family: root.fontFamily
@@ -766,6 +907,7 @@ Item {
             Text {
               width: parent.width
               wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
               text: "Remove " + ((root.pendingRemove && root.pendingRemove.name) || "this app") + "? The launcher and icon are deleted. Remove also deletes the file in Applications."
               color: root.textColor
               font.family: root.fontFamily
@@ -797,10 +939,38 @@ Item {
             visible: root.status !== ""
             width: parent.width
             wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
             text: root.status
             color: root.textColor
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
+          }
+
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(associationText.implicitHeight, associationSwitch.implicitHeight)
+
+            Text {
+              id: associationText
+              width: parent.width - associationSwitch.implicitWidth - Style.space(12)
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
+              text: "A double-click opens the panel, and the file does not run until Install or Update."
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            ToggleSwitch {
+              id: associationSwitch
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              checked: root.associationOn
+              busy: root.associationBusy
+              onToggled: root.setAssociation(!root.associationOn)
+            }
           }
         }
       }

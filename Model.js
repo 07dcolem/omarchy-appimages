@@ -161,3 +161,34 @@ function planFromInspect(data) {
   }
   return attachWarning(install, data)
 }
+
+// Only a real boolean true turns the association on. A missing key, false,
+// or a string such as "true" stays off, including after an upgrade that
+// never wrote the key.
+function openWithPanelEnabled(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false
+  return settings.openWithPanel === true
+}
+
+// Accepts a shell.json document or the bar object inside it. A string layout
+// entry has no settings, which is the same as the key being absent.
+function layoutEntry(config, id) {
+  var layout = null
+  if (config && config.bar && config.bar.layout) layout = config.bar.layout
+  else if (config && config.layout) layout = config.layout
+  if (!layout) return null
+  var names = ["left", "center", "right"]
+  var wanted = String(id || "")
+  for (var s = 0; s < names.length; s++) {
+    var entries = layout[names[s]]
+    if (!entries || !entries.length) continue
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      var entryId = ""
+      if (typeof entry === "string") entryId = entry
+      else if (entry && entry.id != null) entryId = String(entry.id)
+      if (entryId === wanted) return entry
+    }
+  }
+  return null
+}

@@ -3,6 +3,7 @@ import Qt5Compat.GraphicalEffects
 import Quickshell
 import qs.Commons
 import qs.Ui
+import "Model.js" as Model
 
 // Bar chip. The icon is the drop target. Holding a file on it opens the panel.
 BarWidget {
@@ -16,6 +17,13 @@ BarWidget {
   readonly property int barSlot: Style.bar.iconSlot
 
   property bool dragHover: false
+
+  // Set once the host has injected settings. Destruction before that must not
+  // clear an association, and a reload must not either: --release turns the
+  // association off only when this instance's token is still current.
+  property bool settingsSeen: false
+  property string associationToken: ""
+  property double associationStamp: 0
 
   implicitWidth: bar && bar.vertical ? bar.barSize : barSlot
   implicitHeight: bar && bar.vertical ? barSlot : (bar ? bar.barSize : Style.bar.sizeHorizontal)
@@ -38,6 +46,49 @@ BarWidget {
     }
     Quickshell.execDetached(["omarchy-shell", "shell", "summon", pluginId, body])
   }
+
+  function openScript() {
+    var url = Qt.resolvedUrl("bin/omarchy-appimage-open").toString()
+    if (url.indexOf("file://") === 0) url = url.substring(7)
+    try { url = decodeURIComponent(url) } catch (e) {}
+    return url
+  }
+
+  function nextStamp() {
+    var now = Date.now() * 1000
+    if (now <= root.associationStamp) now = root.associationStamp + 1
+    root.associationStamp = now
+    return String(now)
+  }
+
+  function ensureToken() {
+    if (root.associationToken) return root.associationToken
+    var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    var token = ""
+    for (var i = 0; i < 24; i++)
+      token += alphabet.charAt(Math.floor(Math.random() * alphabet.length))
+    root.associationToken = token
+    return token
+  }
+
+  // Absence of openWithPanel is off. Apply only after settings exist so a
+  // reload cannot --off a saved true before the new instance reads it.
+  function applyAssociation() {
+    var mode = Model.openWithPanelEnabled(root.settings) ? "on" : "off"
+    Quickshell.execDetached([root.openScript(), "--apply", root.ensureToken(), mode, root.nextStamp()])
+  }
+
+  function releaseAssociation() {
+    if (!root.settingsSeen || !root.associationToken) return
+    Quickshell.execDetached([root.openScript(), "--release", root.associationToken])
+  }
+
+  onSettingsChanged: {
+    root.settingsSeen = true
+    root.applyAssociation()
+  }
+
+  Component.onDestruction: root.releaseAssociation()
 
   function togglePanel() {
     var api = hostShell()

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "07dcolem.appimages",
   "name": "AppImages",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "author": "07dcolem",
   "license": "MIT",
   "description": "Install, update, list, and remove AppImages from the bar.",
@@ -15,6 +15,17 @@
     "displayName": "AppImages",
     "category": "System",
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "openWithPanel": false
+    },
+    "schema": [
+      {
+        "key": "openWithPanel",
+        "type": "boolean",
+        "label": "A double-click opens the panel, and the file does not run until Install or Update.",
+        "defaultValue": false
+      }
+    ]
   }
 }

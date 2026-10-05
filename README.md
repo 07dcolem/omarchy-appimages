@@ -36,6 +36,7 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
+- A double-click opens the panel, and the file does not run until Install or Update.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
 - Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs -o` on the open file. The preview does not copy the file, move it, or mark it executable. A large local file is still previewed. The AppImage runs when you click Install or Update. If `python`, `squashfs-tools`, or `fuse2` is missing, the panel names that package and the `omarchy pkg add` command.
 - If the preview cannot read the file, confirm says why. That includes a type-1 AppImage, a symlink, a missing root desktop entry, and an embedded filesystem whose size is out of range. The same text is shown when the file would update an app you already have.
@@ -77,7 +78,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.5: install, update, list, open, remove. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
+v0.1.6: install, update, list, open, remove. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 

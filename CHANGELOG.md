@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.6 - 2026-10-04
+
+### Added
+
+- The panel has a switch for opening `application/vnd.appimage` files. It is off when the setting is missing, including a fresh install and an upgrade. A double-click opens the panel, and the file does not run until Install or Update.
+- Turning the switch off restores the previous handler only if this plugin is still the default. A handler another tool took is left alone. Disabling or removing the plugin does that same restore, and only deletes the opener this plugin added.
+
+### Changed
+
+- Plugin version is 0.1.6.
+
 ## 0.1.5 - 2026-10-04
 
 ### Changed
