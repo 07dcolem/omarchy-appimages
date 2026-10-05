@@ -83,18 +83,19 @@ const named = context.layoutEntry({ layout: { right: ["07dcolem.appimages"] } },
 assert(named === "07dcolem.appimages", "string entry")
 assert(context.openWithPanelEnabled(named) === false, "string entry is off")
 const manifest = JSON.parse(fs.readFileSync(process.argv[3], "utf8"))
-assert(manifest.version === "0.1.6", "version")
+assert(manifest.version === "0.1.7", "version")
 assert(manifest.barWidget.defaults.openWithPanel === false, "default")
 const schema = manifest.barWidget.schema.find((item) => item.key === "openWithPanel")
 assert(schema && schema.type === "boolean" && schema.defaultValue === false, "schema")
+assert(schema.label === "Set AppImage File Association", "schema label")
 JS
   grep -F 'property bool associationOn: false' "$REPO_ROOT/Panel.qml"
   grep -F 'onSettingsChanged' "$REPO_ROOT/BarWidget.qml"
   ! grep -F 'Component.onCompleted' "$REPO_ROOT/BarWidget.qml"
+  grep -F 'Set AppImage File Association' "$REPO_ROOT/Panel.qml"
+  grep -F 'Set AppImage File Association' "$REPO_ROOT/manifest.json"
   sentence='A double-click opens the panel, and the file does not run until Install or Update.'
-  grep -F "$sentence" "$REPO_ROOT/Panel.qml"
   grep -F "$sentence" "$REPO_ROOT/README.md"
-  grep -F "$sentence" "$REPO_ROOT/manifest.json"
 }
 
 @test "association: turning it on sets the MIME default" {

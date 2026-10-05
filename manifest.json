@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "07dcolem.appimages",
   "name": "AppImages",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "author": "07dcolem",
   "license": "MIT",
   "description": "Install, update, list, and remove AppImages from the bar.",
@@ -23,7 +23,7 @@
       {
         "key": "openWithPanel",
         "type": "boolean",
-        "label": "A double-click opens the panel, and the file does not run until Install or Update.",
+        "label": "Set AppImage File Association",
         "defaultValue": false
       }
     ]

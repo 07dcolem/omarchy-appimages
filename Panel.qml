@@ -957,7 +957,7 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               wrapMode: Text.WordWrap
               textFormat: Text.PlainText
-              text: "A double-click opens the panel, and the file does not run until Install or Update."
+              text: "Set AppImage File Association"
               color: root.muted
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
