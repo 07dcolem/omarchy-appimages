@@ -88,7 +88,9 @@ Matches `/usr/share/omarchy/bin`.
   this question.
 - The cleanup trap must delete a failed or partial staging file.
 - The panel and the bar drop target pass local paths only. They do not download
-  URLs. A chosen local file is read with `--inspect` before confirm. `--inspect`
+  URLs. Add runs `omarchy-appimage-pick`, which asks the desktop portal and
+  prints one path. It does not open a Qt file dialog in the shell process.
+  A chosen local file is read with `--inspect` before confirm. `--inspect`
   reads a type-2 desktop entry with `/usr/bin/python3` and `/usr/bin/unsquashfs -o`
   on the already-opened file. It does not copy the bundle to `/tmp`, run the
   file, move it, or mark it executable. There is no whole-file size cap on that

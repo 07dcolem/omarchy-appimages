@@ -1,0 +1,229 @@
+#!/bin/bash
+
+# Copyright (c) 2026 07dcolem
+#
+# Ask the desktop portal for one local file and print its path.
+# The dialog runs outside the shell. This script does not open, hash, or run the file.
+# Exit 0 prints one path. Exit 1 is a cancelled chooser. Exit 2 is a chooser failure.
+
+set -euo pipefail
+LC_ALL=C
+
+MAX_REPLY=1024
+MAX_MONITOR=65536
+MAX_PATH=4096
+
+HANDLE=""
+MON_PID=""
+
+die() {
+  printf '%s\n' "$1" >&2
+  exit 2
+}
+
+# shellcheck disable=SC2329 # trap callback; shellcheck does not count trap arguments as calls
+child_pids() {
+  local pid=$1 child
+  [[ $pid =~ ^[0-9]+$ ]] || return 0
+  while read -r child; do
+    [[ $child =~ ^[0-9]+$ ]] || continue
+    printf '%s\n' "$child"
+  done < <(ps -o pid= --ppid "$pid" 2>/dev/null || true)
+}
+
+# shellcheck disable=SC2329
+stop_pid() {
+  local pid=$1 n
+  [[ $pid =~ ^[0-9]+$ ]] || return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  n=0
+  while ((n < 5)); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.05
+    n=$((n + 1))
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+# shellcheck disable=SC2329
+stop_tree() {
+  local pid=$1 child
+  [[ $pid =~ ^[0-9]+$ ]] || return 0
+  while read -r child; do
+    stop_tree "$child"
+  done < <(child_pids "$pid")
+  stop_pid "$pid"
+}
+
+# shellcheck disable=SC2329
+close_request() {
+  [[ -n $HANDLE ]] || return 0
+  gdbus call --session \
+    --dest org.freedesktop.portal.Desktop \
+    --object-path "$HANDLE" \
+    --method org.freedesktop.portal.Request.Close >/dev/null 2>&1 || true
+  HANDLE=""
+}
+
+# shellcheck disable=SC2329
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  set +e
+  exec 4<&- 2>/dev/null || true
+  stop_tree "$MON_PID"
+  MON_PID=""
+  close_request
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+start_ok() {
+  local path=$1
+  [[ $path == /* ]] || return 1
+  ((${#path} <= MAX_PATH)) || return 1
+  [[ $path != *$'\n'* && $path != *$'\r'* ]] || return 1
+  [[ -d $path && ! -L $path ]]
+}
+
+folder_variant() {
+  local path=$1 decimal variant="[" first=1
+  # Decimal bytes, not a b'...' string. gdbus turned the octal escapes into
+  # a garbage path, so the chooser ignored the start folder.
+  while read -r decimal; do
+    [[ $decimal =~ ^[0-9]+$ ]] || return 1
+    ((decimal <= 255)) || return 1
+    if ((first)); then
+      first=0
+      variant+="byte $decimal"
+    else
+      variant+=", byte $decimal"
+    fi
+  done < <(printf '%s\0' "$path" | od -An -tu1 -v -w1)
+  [[ $variant == '[byte '* ]] || return 1
+  printf '%s' "${variant}]"
+}
+
+choose_folder() {
+  local candidate=$1
+  if [[ -n $candidate ]] && start_ok "$candidate"; then
+    printf '%s' "$candidate"
+    return 0
+  fi
+  if [[ -n ${HOME:-} ]] && start_ok "$HOME/Downloads"; then
+    printf '%s' "$HOME/Downloads"
+    return 0
+  fi
+  if [[ -n ${HOME:-} ]] && start_ok "$HOME"; then
+    printf '%s' "$HOME"
+    return 0
+  fi
+  return 1
+}
+
+decode_file_uri() {
+  local uri=$1 rest="" path="" hex byte
+  if [[ $uri == file://localhost/* ]]; then
+    rest=${uri#file://localhost}
+  elif [[ $uri == file:///* ]]; then
+    rest=${uri#file://}
+  else
+    return 1
+  fi
+  ((${#rest} <= 12000)) || return 1
+  while [[ -n $rest ]]; do
+    if [[ $rest == %* ]]; then
+      [[ $rest =~ ^%[0-9A-Fa-f]{2} ]] || return 1
+      hex=${rest:1:2}
+      [[ ${hex,,} != 00 ]] || return 1
+      printf -v byte '%b' "\\x$hex"
+      path+=$byte
+      rest=${rest:3}
+    else
+      path+=${rest:0:1}
+      rest=${rest:1}
+    fi
+  done
+  [[ $path == /* ]] || return 1
+  [[ $path != *$'\n'* && $path != *$'\r'* ]] || return 1
+  ((${#path} >= 2 && ${#path} <= MAX_PATH)) || return 1
+  printf '%s' "$path"
+}
+
+if (($# > 1)); then
+  die "Could not open the file chooser."
+fi
+
+command -v gdbus >/dev/null || die "Could not open the file chooser."
+command -v timeout >/dev/null || die "Could not open the file chooser."
+command -v stdbuf >/dev/null || die "Could not open the file chooser."
+command -v od >/dev/null || die "Could not open the file chooser."
+
+options="{'multiple': <false>, 'modal': <false>, 'accept_label': <'Add'>, 'filters': <[('AppImages', [(uint32 0, '*.[aA][pP][pP][iI][mM][aA][gG][eE]')])]>"
+if folder=$(choose_folder "${1:-}"); then
+  if variant=$(folder_variant "$folder"); then
+    options+=", 'current_folder': <$variant>"
+  fi
+fi
+options+="}"
+
+reply=$(
+  gdbus call --session \
+    --dest org.freedesktop.portal.Desktop \
+    --object-path /org/freedesktop/portal/desktop \
+    --method org.freedesktop.portal.FileChooser.OpenFile \
+    "" \
+    "Add an AppImage" \
+    "$options" 2>/dev/null | head -c $((MAX_REPLY + 1))
+) || die "Could not open the file chooser."
+((${#reply} <= MAX_REPLY)) || die "Could not open the file chooser."
+[[ $reply =~ objectpath\ \'(/org/freedesktop/portal/desktop/request/[A-Za-z0-9_]+/[A-Za-z0-9_]+)\' ]] \
+  || die "Could not open the file chooser."
+HANDLE=${BASH_REMATCH[1]}
+
+exec 4< <(
+  # gdbus block-buffers a pipe, so the Response would sit unread until the
+  # dialog process exits. Line buffering delivers it as the dialog closes.
+  timeout -k 2 -- 180 stdbuf -oL gdbus monitor --session \
+    --dest org.freedesktop.portal.Desktop \
+    --object-path "$HANDLE" 2>/dev/null
+)
+MON_PID=$!
+
+response=""
+chunk=""
+bytes=0
+# -N keeps the newline. -n would treat it as a delimiter and drop it.
+while IFS= read -r -N 1 -u 4 byte || [[ -n $byte ]]; do
+  bytes=$((bytes + 1))
+  ((bytes <= MAX_MONITOR)) || die "Could not open the file chooser."
+  if [[ $byte == $'\n' ]]; then
+    if [[ $chunk == *Request.Response* ]]; then
+      response=$chunk
+      break
+    fi
+    chunk=""
+    continue
+  fi
+  chunk+=$byte
+  ((${#chunk} <= 8192)) || die "Could not open the file chooser."
+done
+if [[ -z $response && $chunk == *Request.Response* ]]; then
+  response=$chunk
+fi
+
+[[ -n $response ]] || die "Could not open the file chooser."
+[[ $response =~ uint32\ ([0-9]+) ]] || die "Could not open the file chooser."
+code=${BASH_REMATCH[1]}
+if [[ $code == 1 ]]; then
+  exit 1
+fi
+[[ $code == 0 ]] || die "Could not open the file chooser."
+rest=${response#*file://}
+[[ $rest != "$response" ]] || die "The file chooser returned a path this plugin will not use."
+uri=file://${rest%%\'*}
+path=$(decode_file_uri "$uri") || die "The file chooser returned a path this plugin will not use."
+printf '%s\n' "$path"
+exit 0

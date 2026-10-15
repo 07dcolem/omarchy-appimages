@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Dialogs
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -22,7 +21,9 @@ Item {
   property bool fuseOk: true
   property bool pythonOk: true
   property bool squashfsOk: true
-  property string mode: "list" // list | confirm | remove
+  property string mode: "list" // list | confirm | remove | unlist
+  property bool removeLauncherOnly: false
+  property int pickSerial: 0
   property string status: ""
   property var apps: []
   property int cursor: 0
@@ -49,6 +50,7 @@ Item {
   readonly property string removeBin: binDir + "/omarchy-appimage-remove"
   readonly property string launchBin: binDir + "/omarchy-launch-appimage"
   readonly property string openBin: binDir + "/omarchy-appimage-open"
+  readonly property string pickBin: binDir + "/omarchy-appimage-pick"
 
   // Off until a saved boolean true is read. The host does not write this key
   // on upgrade, and a missing key must not turn the association on.
@@ -62,7 +64,7 @@ Item {
   readonly property string barPosition: barState && barState.position ? String(barState.position) : "top"
   readonly property real barThickness: barState && barState.barSize ? Number(barState.barSize) : Style.space(36)
   readonly property real gap: Style.gapsOut
-  readonly property real cardW: 440
+  readonly property real cardW: 520
   readonly property real cardH: Math.min(520, Math.max(240,
     body.implicitHeight + card.contentTopInset + card.contentBottomInset))
   readonly property color textColor: Color.popups.text
@@ -109,6 +111,9 @@ Item {
     root.associationSerial = root.associationSerial + 1
     root.associationBusy = false
     associationProc.running = false
+    // A late chooser result must not install into a panel that has gone away.
+    root.pickSerial = root.pickSerial + 1
+    pickProc.running = false
   }
 
   function configText() {
@@ -306,9 +311,39 @@ Item {
     root.confirmButton = plan.button
   }
 
+  // The chooser is a separate process. A Qt file dialog inside this shell
+  // aborts Quickshell: the GTK platform theme calls gvfs on the shell's main loop.
   function pickFile() {
-    fileDialog.currentFolder = "file://" + home + "/Downloads"
-    fileDialog.open()
+    if (root.busy || pickProc.running) {
+      root.status = "A file chooser is already open."
+      return
+    }
+    root.pickSerial = root.pickSerial + 1
+    pickProc.serial = root.pickSerial
+    pickProc.out = ""
+    pickProc.err = ""
+    root.status = "Choose an AppImage in the file chooser."
+    pickProc.command = [root.pickBin, root.home + "/Downloads"]
+    pickProc.running = true
+  }
+
+  function finishPick(serial, code, stdout, stderr) {
+    if (serial !== root.pickSerial || !root.opened) return
+    var text = String(stdout || "")
+    var cut = text.indexOf("\n")
+    var path = cut >= 0 ? text.slice(0, cut) : text
+    if (path.length && path.charAt(path.length - 1) === "\r") path = path.slice(0, path.length - 1)
+    if (code === 0 && path) {
+      root.status = ""
+      considerPath(path)
+      return
+    }
+    if (code === 1) {
+      root.status = ""
+      return
+    }
+    var err = String(stderr || "").replace(/\n/g, " ").trim()
+    root.status = Model.clip(err || "Could not open the file chooser.", 400)
   }
 
   function install(replace) {
@@ -355,10 +390,18 @@ Item {
     Qt.callLater(function () { if (root.opened) keys.forceActiveFocus() })
   }
 
+  function askUnlist(app) {
+    root.pendingRemove = app
+    root.mode = "unlist"
+    root.clearConfirm()
+    Qt.callLater(function () { if (root.opened) keys.forceActiveFocus() })
+  }
+
   function removeApp(keepFile) {
     var app = root.pendingRemove
     if (root.busy || !app) return
     root.busy = true
+    root.removeLauncherOnly = keepFile === true
     root.status = keepFile ? "Removing launcher…" : "Removing…"
     if (removeProc.running) removeProc.running = false
     var command = ["env", "OMARCHY_REMOVE_NOTIFY=false", removeBin]
@@ -377,7 +420,10 @@ Item {
     }
     root.mode = "list"
     root.pendingRemove = null
-    root.status = "Removed."
+    root.status = root.removeLauncherOnly
+      ? "Removed the desktop entry. The AppImage file is still in Applications."
+      : "Removed."
+    root.removeLauncherOnly = false
     refresh()
   }
 
@@ -400,6 +446,7 @@ Item {
       return
     }
     if (root.mode === "remove") removeApp(false)
+    else if (root.mode === "unlist") removeApp(true)
   }
 
   function cancelDialog() {
@@ -415,6 +462,36 @@ Item {
     if (next < 0) next = 0
     if (next >= root.apps.length) next = root.apps.length - 1
     root.cursor = next
+  }
+
+  Process {
+    id: pickProc
+    property int serial: 0
+    property string out: ""
+    property string err: ""
+    stdout: SplitParser {
+      onRead: function (line) {
+        if (pickProc.out.length > 0) return
+        if (String(line).length > 4096) {
+          pickProc.running = false
+          return
+        }
+        pickProc.out = String(line)
+      }
+    }
+    stderr: SplitParser {
+      onRead: function (line) {
+        if (pickProc.err.length >= 400) return
+        var next = pickProc.err ? pickProc.err + " " + line : String(line)
+        pickProc.err = next.length > 400 ? next.slice(0, 400) : next
+      }
+    }
+    onExited: function (code) {
+      var serial = pickProc.serial
+      var out = pickProc.out
+      var err = pickProc.err
+      Qt.callLater(function () { root.finishPick(serial, code, out, err) })
+    }
   }
 
   Process {
@@ -518,6 +595,11 @@ Item {
     onFileChanged: reload()
   }
 
+  Component.onDestruction: {
+    root.pickSerial = root.pickSerial + 1
+    pickProc.running = false
+  }
+
   Connections {
     target: root.shell
     function onBarConfigChanged() { root.pullAssociation() }
@@ -590,14 +672,6 @@ Item {
           return Math.max(root.gap, screenW - root.barThickness - root.cardW - root.gap)
         return Math.max(root.gap, screenW - root.cardW - root.gap)
       }
-    }
-
-    FileDialog {
-      id: fileDialog
-      title: "Add an AppImage"
-      nameFilters: ["AppImages (*.AppImage *.appimage)"]
-      fileMode: FileDialog.OpenFile
-      onAccepted: root.considerPath(Model.fileUrlToPath(String(selectedFile)))
     }
 
     BorderSurface {
@@ -807,6 +881,12 @@ Item {
                   }
 
                   TextButton {
+                    label: "Unlist"
+                    enabled: !root.busy
+                    onClicked: root.askUnlist(row.modelData)
+                  }
+
+                  TextButton {
                     label: "Remove"
                     enabled: !root.busy
                     onClicked: root.askRemove(row.modelData)
@@ -924,6 +1004,37 @@ Item {
               }
               TextButton {
                 label: "Keep file"
+                enabled: !root.busy
+                onClicked: root.removeApp(true)
+              }
+              TextButton {
+                label: "Cancel"
+                enabled: !root.busy
+                onClicked: root.cancelDialog()
+              }
+            }
+          }
+
+          Column {
+            visible: root.mode === "unlist"
+            width: parent.width
+            spacing: Style.space(8)
+
+            Text {
+              width: parent.width
+              wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
+              text: "Remove the desktop entry for " + ((root.pendingRemove && root.pendingRemove.name) || "this app") + "? This deletes the launcher and icon this plugin added. The AppImage file stays in Applications. A shortcut the app installed itself is left alone."
+              color: root.textColor
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            Row {
+              spacing: Style.space(8)
+              TextButton {
+                label: "Remove entry"
+                primary: true
                 enabled: !root.busy
                 onClicked: root.removeApp(true)
               }

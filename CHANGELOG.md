@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.8 - 2026-10-15
+
+### Fixed
+
+- Add opens the system file chooser in its own process and takes the chosen file when the dialog closes. The panel no longer opens a Qt file dialog inside the shell. That dialog aborted Quickshell on the GTK platform theme, so the bar and panels went down with it and the chooser never stayed open.
+- The chooser starts in Downloads when that folder exists.
+
+### Added
+
+- Each installed AppImage has an Unlist button. It deletes the desktop entry and icon this plugin added and leaves the AppImage file in Applications. A shortcut the application installed itself is left alone.
+
+### Changed
+
+- Plugin version is 0.1.8.
+
 ## 0.1.7 - 2026-10-04
 
 ### Changed

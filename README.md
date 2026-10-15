@@ -36,6 +36,7 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
+- Add asks the desktop portal for a file. That chooser is a separate process, so a fault in it cannot take down the shell. The panel still installs only a local `.AppImage`, and only after confirm.
 - A double-click opens the panel, and the file does not run until Install or Update.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
 - Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs -o` on the open file. The preview does not copy the file, move it, or mark it executable. A large local file is still previewed. The AppImage runs when you click Install or Update. If `python`, `squashfs-tools`, or `fuse2` is missing, the panel names that package and the `omarchy pkg add` command.
@@ -46,7 +47,7 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 - If that app is already installed, confirm offers to update it and names the old and new versions when it has them. A version taken from a filename is labeled. Update replaces the launcher. A different filename removes the previous file. The same filename replaces the file in Applications.
 - Dropping the file that is already installed leaves it in place.
 - If the destination filename belongs to a different installed app, confirm explains that and does not install it.
-- Each row: open, or remove (launcher + icon + payload). Keep file drops the launcher and icon only.
+- Each row: Open, Unlist, or Remove. Unlist deletes the desktop entry and icon this plugin added and leaves the file in `~/Applications`. A shortcut the application installed itself is a different desktop file and is left alone. Remove deletes the launcher, the icon, and the file. Keep file on that step does the same launcher removal as Unlist.
 - Esc closes the panel. Enter launches a row, or confirms install or update.
 
 ![Confirming an update of Northwind from 1.0 to 2.0](preview.png)
@@ -69,7 +70,8 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 - `--replace` on install overwrites a launcher that already uses that name. The panel passes it when you confirm an update. A non-interactive CLI install still refuses that name until you pass `--replace`.
 - `--inspect <path>` prints one JSON object. It reads the embedded desktop entry and does not run the file, move it, write a launcher, or mark it executable. The panel uses it to decide whether confirm should install or update.
-- `--keep-file` on remove leaves the payload in `~/Applications`.
+- `--keep-file` on remove leaves the payload in `~/Applications`. The panel's Unlist button uses it.
+- Add runs `omarchy-appimage-pick`. It prints one local path from the desktop portal and does not open or run that file.
 - A URL install accepts only `https://`. `http://` and any other scheme are rejected, and redirects off HTTPS are refused.
 - The expected SHA-256 is `--sha256=<64 lowercase hex>` or `OMARCHY_APPIMAGE_SHA256`. It is checked before the bundle is executed. A mismatch deletes the download.
 - Non-interactive URL installs also require `--confirm-exec` before the file is marked executable or `--appimage-extract` runs. The interactive CLI asks instead, showing the URL, destination name, size, and digest.
@@ -78,7 +80,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.7: install, update, list, open, remove. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
+v0.1.8: install, update, list, open, remove, and unlist. Add uses the desktop portal in a separate process. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 
