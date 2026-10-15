@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Juan I. de Elizalde
 
 # omarchy:summary=Remove an AppImage desktop launcher
-# omarchy:args=[name] [--keep-file]
+# omarchy:args=[name] [--keep-file] [--drop-duplicates]
 
 set -e
 
@@ -24,15 +24,102 @@ desktop_payload_path() {
   printf '%s' "${payload//\\\\/\\}"
 }
 
+# True when the unescaped Exec or TryExec names this payload as its own word.
+# Quotes are turned into spaces first. The payload is a literal, not a pattern.
+exec_mentions_payload() {
+  local exec=$1 payload=$2 wrapped candidate
+  [[ -n $payload ]] || return 1
+  [[ $payload != *$'\n'* && $payload != *$'\r'* ]] || return 1
+  wrapped=" $exec "
+  wrapped=${wrapped//\"/ }
+  wrapped=${wrapped//\'/ }
+  candidate=${wrapped%%" $payload "*}
+  [[ $candidate != "$wrapped" ]]
+}
+
+desktop_value() {
+  local file=$1 key=$2 size
+  [[ -f $file && ! -L $file ]] || return 0
+  size=$(stat -c '%s' -- "$file" 2>/dev/null || printf '999999999')
+  [[ $size =~ ^[0-9]+$ ]] && ((size <= 65536)) || return 0
+  sed -n "s/^${key}=//p" "$file" | head -1
+}
+
+# Remove plugin launchers whose payload is also named by some other desktop file.
+# The other file and the AppImage are left in place.
+drop_duplicates() {
+  local -a plugin_names=() plugin_payloads=() foreign_execs=() victims=()
+  local file count=0 payload name exec_line try_line mentioned
+  local i removed=0 one=""
+  [[ -d $DESKTOP_DIR && ! -L $DESKTOP_DIR ]] || return 0
+  while IFS= read -r -d '' file; do
+    count=$((count + 1))
+    ((count <= 400)) || break
+    if grep -q '^Exec=.*omarchy-launch-appimage' "$file"; then
+      payload=$(desktop_payload_path "$file")
+      [[ -n $payload ]] || continue
+      plugin_names+=("$(basename "${file%.desktop}")")
+      plugin_payloads+=("$payload")
+      continue
+    fi
+    exec_line=$(desktop_value "$file" Exec)
+    try_line=$(desktop_value "$file" TryExec)
+    [[ -n $exec_line ]] && foreign_execs+=("$exec_line")
+    [[ -n $try_line ]] && foreign_execs+=("$try_line")
+  done < <(find -P "$DESKTOP_DIR" -maxdepth 3 -type f -name '*.desktop' -print0 2>/dev/null || true)
+
+  for i in "${!plugin_names[@]}"; do
+    payload=${plugin_payloads[$i]}
+    mentioned=0
+    for exec_line in "${foreign_execs[@]}"; do
+      if exec_mentions_payload "$exec_line" "$payload"; then
+        mentioned=1
+        break
+      fi
+    done
+    if ((mentioned)); then
+      victims+=("${plugin_names[$i]}")
+    fi
+  done
+  ((${#victims[@]})) || return 0
+  if ((${#victims[@]} > 20)); then
+    victims=("${victims[@]:0:20}")
+  fi
+  for name in "${victims[@]}"; do
+    [[ $name != -* && $name != *$'\n'* && $name != *$'\r'* && $name != */* ]] || continue
+    OMARCHY_REMOVE_NOTIFY=false "$0" --keep-file "$name" || continue
+    removed=$((removed + 1))
+    one=$name
+  done
+  ((removed)) || return 0
+  if ((removed == 1)); then
+    printf 'Removed the desktop entry for %s. The AppImage file is still in Applications.\n' "$one"
+  else
+    printf 'Removed %s desktop entries that duplicated an app shortcut. The AppImage files are still in Applications.\n' "$removed"
+  fi
+}
+
 KEEP_FILE=false
+DROP_DUPLICATES=false
 ARGS=()
 for arg in "$@"; do
   if [[ $arg == "--keep-file" ]]; then
     KEEP_FILE=true
+  elif [[ $arg == "--drop-duplicates" ]]; then
+    DROP_DUPLICATES=true
   else
     ARGS+=("$arg")
   fi
 done
+
+if [[ $DROP_DUPLICATES == true ]]; then
+  if ((${#ARGS[@]})) || [[ $KEEP_FILE == true ]]; then
+    echo "Could not check shortcuts." >&2
+    exit 2
+  fi
+  drop_duplicates
+  exit 0
+fi
 
 # Always index the launchers, so removal deletes the file that was found rather
 # than a path rebuilt from the displayed name. Installs predating the name

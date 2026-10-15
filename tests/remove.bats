@@ -11,6 +11,60 @@ install_fixture() {
   omarchy-appimage-install "$HOME/Downloads/$file" >/dev/null
 }
 
+@test "remove: --drop-duplicates removes only our launcher when the app has its own" {
+  install_fixture Foo.AppImage "Foo"
+  cat >"$DESKTOP_DIR/foo-own.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Foo
+Exec=$APPS_DIR/Foo.AppImage %U
+EOF
+  cat >"$DESKTOP_DIR/not-foo.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Not Foo
+Exec=$APPS_DIR/Foo.AppImage.backup %U
+EOF
+  run omarchy-appimage-remove --drop-duplicates
+  [ "$status" -eq 0 ]
+  [[ $output == *"Removed the desktop entry for Foo."* ]]
+  [ ! -e "$DESKTOP_DIR/Foo.desktop" ]
+  [ -e "$APPS_DIR/Foo.AppImage" ]
+  [ -e "$DESKTOP_DIR/foo-own.desktop" ]
+  [ -e "$DESKTOP_DIR/not-foo.desktop" ]
+  [ -z "$(ls -A "$ICONS_DIR")" ]
+  [ ! -e "$HOME/pwned" ]
+}
+
+@test "remove: --drop-duplicates ignores a launcher that is the only shortcut" {
+  install_fixture Foo.AppImage "Foo"
+  run omarchy-appimage-remove --drop-duplicates
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -e "$DESKTOP_DIR/Foo.desktop" ]
+  [ -e "$APPS_DIR/Foo.AppImage" ]
+}
+
+@test "remove: --drop-duplicates matches a quoted path and does not run an Exec line" {
+  install_fixture "My App.AppImage" "My App"
+  printf '%s\n' '[Desktop Entry]' 'Type=Application' "Exec=\"$APPS_DIR/My App.AppImage\" %U" >"$DESKTOP_DIR/own.desktop"
+  printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Exec=$(touch '"$HOME"'/pwned)' >"$DESKTOP_DIR/trap.desktop"
+  run omarchy-appimage-remove --drop-duplicates
+  [ "$status" -eq 0 ]
+  [[ $output == *"Removed the desktop entry for My App."* ]]
+  [ ! -e "$DESKTOP_DIR/My App.desktop" ]
+  [ -e "$APPS_DIR/My App.AppImage" ]
+  [ -e "$DESKTOP_DIR/own.desktop" ]
+  [ -e "$DESKTOP_DIR/trap.desktop" ]
+  [ ! -e "$HOME/pwned" ]
+}
+
+@test "remove: --drop-duplicates refuses to combine with a name" {
+  run omarchy-appimage-remove --drop-duplicates --keep-file Foo
+  [ "$status" -eq 2 ]
+  [[ $output == *"Could not check shortcuts."* ]]
+}
+
 @test "remove: deletes launcher, icon and payload together" {
   install_fixture Foo.AppImage "Foo"
   run omarchy-appimage-remove "Foo"

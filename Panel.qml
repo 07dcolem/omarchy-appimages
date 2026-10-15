@@ -59,6 +59,8 @@ Item {
   property int associationSerial: 0
   property string associationErr: ""
   property string associationOut: ""
+  // Off until a saved boolean true is read, same as the association switch.
+  property bool dropDuplicatesOn: false
 
   readonly property var barState: shell && shell.bar ? shell.bar : null
   readonly property string barPosition: barState && barState.position ? String(barState.position) : "top"
@@ -89,6 +91,8 @@ Item {
       prime.restart()
     }
     refresh()
+    root.pullAssociation()
+    if (root.dropDuplicatesOn) root.dedupeLaunchers()
     if (payload.path) considerPath(String(payload.path))
     else if (payload.entries) considerEntries(payload.entries)
     Qt.callLater(function () {
@@ -111,6 +115,7 @@ Item {
     root.associationSerial = root.associationSerial + 1
     root.associationBusy = false
     associationProc.running = false
+    dedupeProc.running = false
     // A late chooser result must not install into a panel that has gone away.
     root.pickSerial = root.pickSerial + 1
     pickProc.running = false
@@ -148,6 +153,51 @@ Item {
     if (root.associationBusy) return
     var entry = root.currentEntry()
     root.associationOn = Model.openWithPanelEnabled(entry)
+    root.dropDuplicatesOn = Model.dropDuplicateLaunchersEnabled(entry)
+  }
+
+  function settingsLoaded() {
+    var before = root.dropDuplicatesOn
+    root.pullAssociation()
+    if (root.opened && root.dropDuplicatesOn && !before) root.dedupeLaunchers()
+  }
+
+  function setDropDuplicates(enabled) {
+    if (dedupeProc.running) return
+    var next = root.copyEntry()
+    if (enabled) next.dropDuplicateLaunchers = true
+    else delete next.dropDuplicateLaunchers
+    var seen = root.currentEntry() !== null
+    var wrote = false
+    if (root.shell && typeof root.shell.updateEntryInline === "function")
+      wrote = root.shell.updateEntryInline(root.pluginId, next) === true
+    if (!(wrote || seen)) {
+      root.status = "Could not save the switch."
+      return
+    }
+    root.dropDuplicatesOn = enabled === true
+    if (enabled) root.dedupeLaunchers()
+  }
+
+  function dedupeLaunchers() {
+    if (!root.opened || !root.dropDuplicatesOn || dedupeProc.running) return
+    dedupeProc.out = ""
+    dedupeProc.err = ""
+    dedupeProc.command = ["env", "OMARCHY_REMOVE_NOTIFY=false", removeBin, "--drop-duplicates"]
+    dedupeProc.running = true
+  }
+
+  function finishDedupe(code, stdout, stderr) {
+    if (!root.opened) return
+    if (code !== 0) {
+      var err = String(stderr || "").replace(/\n/g, " ").trim()
+      root.status = Model.clip(err || "Could not check shortcuts.", 400)
+      return
+    }
+    var text = String(stdout || "").trim()
+    if (!text) return
+    root.status = Model.clip(text.split("\n")[0], 400)
+    refresh()
   }
 
   function setAssociation(enabled) {
@@ -581,6 +631,31 @@ Item {
     }
   }
 
+  Process {
+    id: dedupeProc
+    property string out: ""
+    property string err: ""
+    stdout: SplitParser {
+      onRead: function (line) {
+        if (dedupeProc.out.length >= 400) return
+        var next = dedupeProc.out ? dedupeProc.out + " " + line : String(line)
+        dedupeProc.out = next.length > 400 ? next.slice(0, 400) : next
+      }
+    }
+    stderr: SplitParser {
+      onRead: function (line) {
+        if (dedupeProc.err.length >= 400) return
+        var next = dedupeProc.err ? dedupeProc.err + " " + line : String(line)
+        dedupeProc.err = next.length > 400 ? next.slice(0, 400) : next
+      }
+    }
+    onExited: function (code) {
+      var out = dedupeProc.out
+      var err = dedupeProc.err
+      Qt.callLater(function () { root.finishDedupe(code, out, err) })
+    }
+  }
+
   FileView {
     id: shellConfigFile
     path: {
@@ -590,19 +665,20 @@ Item {
     }
     watchChanges: true
     printErrors: false
-    onLoaded: root.pullAssociation()
-    onLoadFailed: root.pullAssociation()
+    onLoaded: root.settingsLoaded()
+    onLoadFailed: root.settingsLoaded()
     onFileChanged: reload()
   }
 
   Component.onDestruction: {
     root.pickSerial = root.pickSerial + 1
     pickProc.running = false
+    dedupeProc.running = false
   }
 
   Connections {
     target: root.shell
-    function onBarConfigChanged() { root.pullAssociation() }
+    function onBarConfigChanged() { root.settingsLoaded() }
   }
 
   Timer {
@@ -646,7 +722,8 @@ Item {
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "07dcolem-appimages"
     WlrLayershell.layer: WlrLayer.Top
-    WlrLayershell.keyboardFocus: !root.opened || root.dragging
+    // Drop the keyboard grab while the portal dialog is up so it can take focus.
+    WlrLayershell.keyboardFocus: !root.opened || root.dragging || pickProc.running
       ? WlrKeyboardFocus.None
       : (root.focusPrimed ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive)
 
@@ -1081,6 +1158,33 @@ Item {
               checked: root.associationOn
               busy: root.associationBusy
               onToggled: root.setAssociation(!root.associationOn)
+            }
+          }
+
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(duplicateText.implicitHeight, duplicateSwitch.implicitHeight)
+
+            Text {
+              id: duplicateText
+              width: parent.width - duplicateSwitch.implicitWidth - Style.space(12)
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
+              text: "Drop our shortcut if the app added one"
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            ToggleSwitch {
+              id: duplicateSwitch
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              checked: root.dropDuplicatesOn
+              busy: dedupeProc.running
+              onToggled: root.setDropDuplicates(!root.dropDuplicatesOn)
             }
           }
         }

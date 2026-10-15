@@ -36,7 +36,7 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
-- Add asks the desktop portal for a file. That chooser is a separate process, so a fault in it cannot take down the shell. The panel still installs only a local `.AppImage`, and only after confirm.
+- Add asks the desktop portal for a file. That chooser is a separate process, so a fault in it cannot take down the shell. The dialog is modal. On Hyprland it is focused after it maps, so it opens above the window that was already in front. The panel still installs only a local `.AppImage`, and only after confirm.
 - A double-click opens the panel, and the file does not run until Install or Update.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
 - Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs -o` on the open file. The preview does not copy the file, move it, or mark it executable. A large local file is still previewed. The AppImage runs when you click Install or Update. If `python`, `squashfs-tools`, or `fuse2` is missing, the panel names that package and the `omarchy pkg add` command.
@@ -48,6 +48,7 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 - Dropping the file that is already installed leaves it in place.
 - If the destination filename belongs to a different installed app, confirm explains that and does not install it.
 - Each row: Open, Unlist, or Remove. Unlist deletes the desktop entry and icon this plugin added and leaves the file in `~/Applications`. A shortcut the application installed itself is a different desktop file and is left alone. Remove deletes the launcher, the icon, and the file. Keep file on that step does the same launcher removal as Unlist.
+- The switch under file association is off until you turn it on. While it is on, opening the panel does that Unlist automatically when another desktop file names the same AppImage. The file in `~/Applications` and the app's own shortcut stay.
 - Esc closes the panel. Enter launches a row, or confirms install or update.
 
 ![Confirming an update of Northwind from 1.0 to 2.0](preview.png)
@@ -80,7 +81,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.8: install, update, list, open, remove, and unlist. Add uses the desktop portal in a separate process. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
+v0.1.9: install, update, list, open, remove, and unlist. Add uses the desktop portal in a separate process and raises that dialog on Hyprland. A panel switch can drop this plugin's launcher when the app has installed its own. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 

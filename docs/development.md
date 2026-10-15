@@ -90,6 +90,18 @@ Matches `/usr/share/omarchy/bin`.
 - The panel and the bar drop target pass local paths only. They do not download
   URLs. Add runs `omarchy-appimage-pick`, which asks the desktop portal and
   prints one path. It does not open a Qt file dialog in the shell process.
+  The dialog is modal. On Hyprland, after the portal window maps, the script
+  focuses that window by the address `hyprctl clients` printed for class
+  `xdg-desktop-portal-gtk` and title `Add an AppImage`. The title is not
+  passed to the compositor. The panel drops its keyboard grab while the
+  chooser is open.
+- `dropDuplicateLaunchers` in the plugin's `shell.json` entry is off when
+  the key is missing. While it is on, opening the panel runs
+  `omarchy-appimage-remove --drop-duplicates`. That removes a plugin launcher
+  and its icon when some other `.desktop` file under
+  `~/.local/share/applications` names the same payload path in `Exec` or
+  `TryExec`. It does not delete that other file or the AppImage. At most
+  400 desktop files are read, and at most 20 launchers are removed.
   A chosen local file is read with `--inspect` before confirm. `--inspect`
   reads a type-2 desktop entry with `/usr/bin/python3` and `/usr/bin/unsquashfs -o`
   on the already-opened file. It does not copy the bundle to `/tmp`, run the

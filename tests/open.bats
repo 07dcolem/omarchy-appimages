@@ -72,6 +72,9 @@ assert(context.openWithPanelEnabled({ openWithPanel: false }) === false, "false"
 assert(context.openWithPanelEnabled({ openWithPanel: "true" }) === false, "string")
 assert(context.openWithPanelEnabled({ openWithPanel: 1 }) === false, "number")
 assert(context.openWithPanelEnabled({ openWithPanel: true }) === true, "boolean true")
+assert(context.dropDuplicateLaunchersEnabled(missing) === false, "duplicates missing")
+assert(context.dropDuplicateLaunchersEnabled({ dropDuplicateLaunchers: "true" }) === false, "duplicates string")
+assert(context.dropDuplicateLaunchersEnabled({ dropDuplicateLaunchers: true }) === true, "duplicates true")
 const shell = {
   version: 1,
   bar: { layout: { left: [], center: [], right: [{ id: "07dcolem.appimages" }] } }
@@ -83,8 +86,12 @@ const named = context.layoutEntry({ layout: { right: ["07dcolem.appimages"] } },
 assert(named === "07dcolem.appimages", "string entry")
 assert(context.openWithPanelEnabled(named) === false, "string entry is off")
 const manifest = JSON.parse(fs.readFileSync(process.argv[3], "utf8"))
-assert(manifest.version === "0.1.8", "version")
+assert(manifest.version === "0.1.9", "version")
 assert(manifest.barWidget.defaults.openWithPanel === false, "default")
+assert(manifest.barWidget.defaults.dropDuplicateLaunchers === false, "duplicates default")
+const duplicate = manifest.barWidget.schema.find((item) => item.key === "dropDuplicateLaunchers")
+assert(duplicate && duplicate.type === "boolean" && duplicate.defaultValue === false, "duplicates schema")
+assert(duplicate.label === "Drop our shortcut if the app added one", "duplicates label")
 const schema = manifest.barWidget.schema.find((item) => item.key === "openWithPanel")
 assert(schema && schema.type === "boolean" && schema.defaultValue === false, "schema")
 assert(schema.label === "Set AppImage File Association", "schema label")
@@ -93,6 +100,8 @@ JS
   grep -F 'onSettingsChanged' "$REPO_ROOT/BarWidget.qml"
   ! grep -F 'Component.onCompleted' "$REPO_ROOT/BarWidget.qml"
   grep -F 'Set AppImage File Association' "$REPO_ROOT/Panel.qml"
+  grep -F 'Drop our shortcut if the app added one' "$REPO_ROOT/Panel.qml"
+  grep -F -e '--drop-duplicates' "$REPO_ROOT/Panel.qml"
   grep -F 'Set AppImage File Association' "$REPO_ROOT/manifest.json"
   sentence='A double-click opens the panel, and the file does not run until Install or Update.'
   grep -F "$sentence" "$REPO_ROOT/README.md"

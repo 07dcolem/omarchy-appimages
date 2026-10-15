@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.9 - 2026-10-15
+
+### Fixed
+
+- Add's file chooser opens above the window that already has focus. The dialog is modal, the panel lets go of the keyboard while it is open, and on Hyprland the chooser window is focused once it maps.
+
+### Added
+
+- A switch under Set AppImage File Association, off until you turn it on. When it is on, opening the panel removes the launcher and icon this plugin added if that AppImage has also installed its own shortcut. The AppImage file and the app's shortcut stay.
+
+### Changed
+
+- Plugin version is 0.1.9.
+
 ## 0.1.8 - 2026-10-15
 
 ### Fixed

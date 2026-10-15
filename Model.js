@@ -170,6 +170,12 @@ function openWithPanelEnabled(settings) {
   return settings.openWithPanel === true
 }
 
+// Same rule as the file-association switch. A missing key stays off.
+function dropDuplicateLaunchersEnabled(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false
+  return settings.dropDuplicateLaunchers === true
+}
+
 // Accepts a shell.json document or the bar object inside it. A string layout
 // entry has no settings, which is the same as the key being absent.
 function layoutEntry(config, id) {
