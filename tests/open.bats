@@ -86,7 +86,7 @@ const named = context.layoutEntry({ layout: { right: ["07dcolem.appimages"] } },
 assert(named === "07dcolem.appimages", "string entry")
 assert(context.openWithPanelEnabled(named) === false, "string entry is off")
 const manifest = JSON.parse(fs.readFileSync(process.argv[3], "utf8"))
-assert(manifest.version === "0.1.9", "version")
+assert(manifest.version === "0.1.11", "version")
 assert(manifest.barWidget.defaults.openWithPanel === false, "default")
 assert(manifest.barWidget.defaults.dropDuplicateLaunchers === false, "duplicates default")
 const duplicate = manifest.barWidget.schema.find((item) => item.key === "dropDuplicateLaunchers")
@@ -102,6 +102,7 @@ JS
   grep -F 'Set AppImage File Association' "$REPO_ROOT/Panel.qml"
   grep -F 'Drop our shortcut if the app added one' "$REPO_ROOT/Panel.qml"
   grep -F -e '--drop-duplicates' "$REPO_ROOT/Panel.qml"
+  grep -F -e '--show-shortcuts' "$REPO_ROOT/Panel.qml"
   grep -F 'Set AppImage File Association' "$REPO_ROOT/manifest.json"
   sentence='A double-click opens the panel, and the file does not run until Install or Update.'
   grep -F "$sentence" "$REPO_ROOT/README.md"

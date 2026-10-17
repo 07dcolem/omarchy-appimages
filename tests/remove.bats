@@ -11,7 +11,7 @@ install_fixture() {
   omarchy-appimage-install "$HOME/Downloads/$file" >/dev/null
 }
 
-@test "remove: --drop-duplicates removes only our launcher when the app has its own" {
+@test "remove: --drop-duplicates hides our shortcut and keeps the installed app" {
   install_fixture Foo.AppImage "Foo"
   cat >"$DESKTOP_DIR/foo-own.desktop" <<EOF
 [Desktop Entry]
@@ -27,13 +27,22 @@ Exec=$APPS_DIR/Foo.AppImage.backup %U
 EOF
   run omarchy-appimage-remove --drop-duplicates
   [ "$status" -eq 0 ]
-  [[ $output == *"Removed the desktop entry for Foo."* ]]
-  [ ! -e "$DESKTOP_DIR/Foo.desktop" ]
+  [[ $output == *"Hid the shortcut for Foo. It stays in this list."* ]]
+  [ -e "$DESKTOP_DIR/Foo.desktop" ]
+  grep -qx 'NoDisplay=true' "$DESKTOP_DIR/Foo.desktop"
+  grep -qx 'X-AppImage-Suppressed=duplicate' "$DESKTOP_DIR/Foo.desktop"
   [ -e "$APPS_DIR/Foo.AppImage" ]
   [ -e "$DESKTOP_DIR/foo-own.desktop" ]
   [ -e "$DESKTOP_DIR/not-foo.desktop" ]
-  [ -z "$(ls -A "$ICONS_DIR")" ]
+  [ -n "$(find "$ICON_BASE" -type f -name 'foo.*')" ]
   [ ! -e "$HOME/pwned" ]
+  run omarchy-appimage-list
+  [ "$status" -eq 0 ]
+  [[ $output == *'"name":"Foo"'* ]]
+  run omarchy-appimage-remove --drop-duplicates
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -qx 'NoDisplay=true' "$DESKTOP_DIR/Foo.desktop"
 }
 
 @test "remove: --drop-duplicates ignores a launcher that is the only shortcut" {
@@ -51,18 +60,101 @@ EOF
   printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Exec=$(touch '"$HOME"'/pwned)' >"$DESKTOP_DIR/trap.desktop"
   run omarchy-appimage-remove --drop-duplicates
   [ "$status" -eq 0 ]
-  [[ $output == *"Removed the desktop entry for My App."* ]]
-  [ ! -e "$DESKTOP_DIR/My App.desktop" ]
+  [[ $output == *"Hid the shortcut for My App. It stays in this list."* ]]
+  [ -e "$DESKTOP_DIR/My App.desktop" ]
+  grep -qx 'NoDisplay=true' "$DESKTOP_DIR/My App.desktop"
   [ -e "$APPS_DIR/My App.AppImage" ]
   [ -e "$DESKTOP_DIR/own.desktop" ]
   [ -e "$DESKTOP_DIR/trap.desktop" ]
   [ ! -e "$HOME/pwned" ]
+  run omarchy-appimage-list
+  [ "$status" -eq 0 ]
+  [[ $output == *'"name":"My App"'* ]]
+}
+
+@test "remove: --drop-duplicates keeps a desktop action on the hidden launcher" {
+  install_fixture Foo.AppImage "Foo"
+  printf '\n%s\n' '[Desktop Action Extra]' 'Name=Extra' 'Exec=true' >>"$DESKTOP_DIR/Foo.desktop"
+  printf '%s\n' '[Desktop Entry]' 'Type=Application' "Exec=$APPS_DIR/Foo.AppImage" >"$DESKTOP_DIR/own.desktop"
+  run omarchy-appimage-remove --drop-duplicates
+  [ "$status" -eq 0 ]
+  grep -qx 'NoDisplay=true' "$DESKTOP_DIR/Foo.desktop"
+  grep -qx '\[Desktop Action Extra\]' "$DESKTOP_DIR/Foo.desktop"
+  grep -qx 'Name=Extra' "$DESKTOP_DIR/Foo.desktop"
+  awk '
+    /^\[Desktop Entry\]$/ { entry = 1; next }
+    /^\[/ { entry = 0 }
+    entry && $0 == "NoDisplay=true" { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$DESKTOP_DIR/Foo.desktop"
+  run omarchy-appimage-list
+  [[ $output == *'"name":"Foo"'* ]]
+}
+
+@test "remove: --drop-duplicates ignores a hidden handler that names the payload" {
+  install_fixture Foo.AppImage "Foo"
+  cat >"$DESKTOP_DIR/foo-handler.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Foo Handler
+NoDisplay=true
+Exec=$APPS_DIR/Foo.AppImage %U
+EOF
+  run omarchy-appimage-remove --drop-duplicates
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -e "$DESKTOP_DIR/Foo.desktop" ]
+  ! grep -q '^NoDisplay=' "$DESKTOP_DIR/Foo.desktop"
+  run omarchy-appimage-list
+  [[ $output == *'"name":"Foo"'* ]]
+}
+
+@test "remove: --drop-duplicates restores our shortcut when the other one is gone" {
+  install_fixture Foo.AppImage "Foo"
+  printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Foo' "Exec=$APPS_DIR/Foo.AppImage" >"$DESKTOP_DIR/foo-own.desktop"
+  omarchy-appimage-remove --drop-duplicates
+  grep -qx 'NoDisplay=true' "$DESKTOP_DIR/Foo.desktop"
+  rm -f "$DESKTOP_DIR/foo-own.desktop"
+  run omarchy-appimage-remove --drop-duplicates
+  [ "$status" -eq 0 ]
+  [[ $output == *"Restored the shortcut for Foo."* ]]
+  ! grep -q '^NoDisplay=' "$DESKTOP_DIR/Foo.desktop"
+  ! grep -q '^X-AppImage-Suppressed=' "$DESKTOP_DIR/Foo.desktop"
+  run omarchy-appimage-list
+  [[ $output == *'"name":"Foo"'* ]]
+}
+
+@test "remove: --show-shortcuts restores our shortcut while the app's own stays" {
+  install_fixture Foo.AppImage "Foo"
+  printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Own Foo' "Exec=$APPS_DIR/Foo.AppImage" >"$DESKTOP_DIR/foo-own.desktop"
+  omarchy-appimage-remove --drop-duplicates
+  run omarchy-appimage-remove --show-shortcuts
+  [ "$status" -eq 0 ]
+  [[ $output == *"Restored the shortcut for Foo."* ]]
+  ! grep -q '^NoDisplay=' "$DESKTOP_DIR/Foo.desktop"
+  [ -e "$DESKTOP_DIR/foo-own.desktop" ]
+  [ -e "$APPS_DIR/Foo.AppImage" ]
+  run omarchy-appimage-list
+  [[ $output == *'"name":"Foo"'* ]]
+}
+
+@test "remove: --show-shortcuts leaves a NoDisplay line it did not add" {
+  install_fixture Foo.AppImage "Foo"
+  printf '\n%s\n' 'NoDisplay=true' >>"$DESKTOP_DIR/Foo.desktop"
+  run omarchy-appimage-remove --show-shortcuts
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -qx 'NoDisplay=true' "$DESKTOP_DIR/Foo.desktop"
 }
 
 @test "remove: --drop-duplicates refuses to combine with a name" {
   run omarchy-appimage-remove --drop-duplicates --keep-file Foo
   [ "$status" -eq 2 ]
   [[ $output == *"Could not check shortcuts."* ]]
+  run omarchy-appimage-remove --show-shortcuts --drop-duplicates
+  [ "$status" -eq 2 ]
+  run omarchy-appimage-remove --show-shortcuts Foo
+  [ "$status" -eq 2 ]
 }
 
 @test "remove: deletes launcher, icon and payload together" {

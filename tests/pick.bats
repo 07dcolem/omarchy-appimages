@@ -137,10 +137,12 @@ decode_folder() {
 printf '%s\n' "$*" >>"${PICK_STUB_HYPR_LOG:?}"
 if [[ $1 == clients ]]; then
   printf '%s\n' "Window 0xbad -> Add an AppImage:"
+  printf '%s\n' "	floating: 0"
   printf '%s\n' "	class: not-the-portal"
   printf '%s\n' "	title: Add an AppImage"
   printf '%s\n' "	title: \$(touch pwned)"
   printf '%s\n' "Window deadbeef -> Add an AppImage:"
+  printf '%s\n' "	floating: ${PICK_STUB_FLOATING:-1}"
   printf '%s\n' "	class: xdg-desktop-portal-gtk"
   printf '%s\n' "	title: Add an AppImage"
 fi
@@ -148,18 +150,29 @@ exit 0
 STUB
   chmod 755 "$STUB_DIR/hyprctl"
   export PICK_STUB_RESPONSE="/org/freedesktop/portal/desktop/request/1_7/pick: org.freedesktop.portal.Request.Response (uint32 0, {'uris': <['file:///tmp/Ok.AppImage']>})"
+  export PICK_STUB_FLOATING=1
   run timeout 5 omarchy-appimage-pick "$HOME/Downloads"
   [ "$status" -eq 0 ]
   [ "$output" = "/tmp/Ok.AppImage" ]
   [ ! -e "$HOME/pwned" ]
+  grep -F 'hl.dsp.window.pin({ window = "address:0xdeadbeef", action = "set" })' "$PICK_STUB_HYPR_LOG"
   grep -F 'hl.dsp.focus({ window = "address:0xdeadbeef" })' "$PICK_STUB_HYPR_LOG"
   grep -F 'hl.dsp.window.alter_zorder({ window = "address:0xdeadbeef", mode = "top" })' "$PICK_STUB_HYPR_LOG"
   grep -F 'hl.dsp.window.bring_to_top({ window = "address:0xdeadbeef" })' "$PICK_STUB_HYPR_LOG"
+  ! grep -F 'hl.dsp.window.float' "$PICK_STUB_HYPR_LOG"
   ! grep -F '0xbad' "$PICK_STUB_HYPR_LOG"
   ! grep -F 'touch' "$PICK_STUB_HYPR_LOG"
   ! grep -F 'not-the-portal' "$PICK_STUB_HYPR_LOG"
   options=$(cat "$PICK_STUB_OPTIONS")
   [[ $options == *"'modal': <true>"* ]]
+
+  : >"$PICK_STUB_HYPR_LOG"
+  export PICK_STUB_FLOATING=0
+  run timeout 5 omarchy-appimage-pick "$HOME/Downloads"
+  [ "$status" -eq 0 ]
+  grep -F 'hl.dsp.window.float({ window = "address:0xdeadbeef", action = "set" })' "$PICK_STUB_HYPR_LOG"
+  grep -F 'hl.dsp.window.pin({ window = "address:0xdeadbeef", action = "set" })' "$PICK_STUB_HYPR_LOG"
+  ! grep -F '0xbad' "$PICK_STUB_HYPR_LOG"
 }
 
 @test "panel: add does not open a Qt file dialog, and a row can unlist" {

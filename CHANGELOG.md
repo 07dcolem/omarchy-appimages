@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.11 - 2026-10-17
+
+### Fixed
+
+- "Drop our shortcut if the app added one" hides this plugin's app-launcher shortcut when another visible desktop file names the same AppImage. The installed app stays in the panel list, and its icon stays. The AppImage file and the app's own shortcut stay. Turning the switch off shows this plugin's shortcut again.
+
+### Changed
+
+- Plugin version is 0.1.11.
+
+## 0.1.10 - 2026-10-15
+
+### Fixed
+
+- Add's file chooser stays in front of a window that is already fullscreen. On Hyprland the dialog is pinned after it maps. The other window stays fullscreen. A dialog that is already floating is not sent the float command, because that command tiles it and then it cannot be pinned.
+
+### Changed
+
+- Plugin version is 0.1.10.
+
 ## 0.1.9 - 2026-10-15
 
 ### Fixed

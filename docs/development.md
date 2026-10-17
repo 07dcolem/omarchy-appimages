@@ -91,17 +91,24 @@ Matches `/usr/share/omarchy/bin`.
   URLs. Add runs `omarchy-appimage-pick`, which asks the desktop portal and
   prints one path. It does not open a Qt file dialog in the shell process.
   The dialog is modal. On Hyprland, after the portal window maps, the script
-  focuses that window by the address `hyprctl clients` printed for class
-  `xdg-desktop-portal-gtk` and title `Add an AppImage`. The title is not
-  passed to the compositor. The panel drops its keyboard grab while the
-  chooser is open.
+  pins that window by the address `hyprctl clients` printed for class
+  `xdg-desktop-portal-gtk` and title `Add an AppImage`. Pin draws it above a
+  fullscreen window and leaves that window fullscreen. Focus and z-order do
+  not. `float` with action `set` runs only when that client is tiled, because
+  on Hyprland 0.56 the same command tiles a window that is already floating
+  and pin then refuses it. The title is not passed to the compositor. The
+  panel drops its keyboard grab while the chooser is open.
 - `dropDuplicateLaunchers` in the plugin's `shell.json` entry is off when
   the key is missing. While it is on, opening the panel runs
-  `omarchy-appimage-remove --drop-duplicates`. That removes a plugin launcher
-  and its icon when some other `.desktop` file under
+  `omarchy-appimage-remove --drop-duplicates`. That sets `NoDisplay=true` on
+  a plugin launcher when some other visible `.desktop` file under
   `~/.local/share/applications` names the same payload path in `Exec` or
-  `TryExec`. It does not delete that other file or the AppImage. At most
-  400 desktop files are read, and at most 20 launchers are removed.
+  `TryExec`. The desktop file and its icon stay, so the panel list still
+  shows the app. A `Hidden=true` or `NoDisplay=true` file is not that other
+  shortcut. Turning the switch off runs `--show-shortcuts`, which removes
+  only the `NoDisplay` line and `X-AppImage-Suppressed=duplicate` marker this
+  command added. It does not delete the other file or the AppImage. At most
+  400 desktop files are read, and at most 20 launchers are changed.
   A chosen local file is read with `--inspect` before confirm. `--inspect`
   reads a type-2 desktop entry with `/usr/bin/python3` and `/usr/bin/unsquashfs -o`
   on the already-opened file. It does not copy the bundle to `/tmp`, run the

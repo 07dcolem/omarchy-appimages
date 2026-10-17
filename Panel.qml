@@ -177,14 +177,24 @@ Item {
     }
     root.dropDuplicatesOn = enabled === true
     if (enabled) root.dedupeLaunchers()
+    else root.showLaunchers()
+  }
+
+  function runShortcutPass(flag) {
+    if (!root.opened || dedupeProc.running) return
+    dedupeProc.out = ""
+    dedupeProc.err = ""
+    dedupeProc.command = ["env", "OMARCHY_REMOVE_NOTIFY=false", removeBin, flag]
+    dedupeProc.running = true
   }
 
   function dedupeLaunchers() {
-    if (!root.opened || !root.dropDuplicatesOn || dedupeProc.running) return
-    dedupeProc.out = ""
-    dedupeProc.err = ""
-    dedupeProc.command = ["env", "OMARCHY_REMOVE_NOTIFY=false", removeBin, "--drop-duplicates"]
-    dedupeProc.running = true
+    if (!root.dropDuplicatesOn) return
+    runShortcutPass("--drop-duplicates")
+  }
+
+  function showLaunchers() {
+    runShortcutPass("--show-shortcuts")
   }
 
   function finishDedupe(code, stdout, stderr) {

@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Juan I. de Elizalde
 
 # omarchy:summary=Remove an AppImage desktop launcher
-# omarchy:args=[name] [--keep-file] [--drop-duplicates]
+# omarchy:args=[name] [--keep-file] [--drop-duplicates] [--show-shortcuts]
 
 set -e
 
@@ -45,79 +45,176 @@ desktop_value() {
   sed -n "s/^${key}=//p" "$file" | head -1
 }
 
-# Remove plugin launchers whose payload is also named by some other desktop file.
-# The other file and the AppImage are left in place.
-drop_duplicates() {
-  local -a plugin_names=() plugin_payloads=() foreign_execs=() victims=()
-  local file count=0 payload name exec_line try_line mentioned
-  local i removed=0 one=""
+# A foreign desktop file counts as the app's own shortcut only when the menu
+# would show it. Hidden and NoDisplay files are handlers, not a second listing.
+desktop_menu_visible() {
+  local hidden display
+  hidden=$(desktop_value "$1" Hidden)
+  display=$(desktop_value "$1" NoDisplay)
+  [[ $hidden == true || $display == true ]] && return 1
+  return 0
+}
+
+# True when this plugin hid the shortcut and left the desktop file in place.
+launcher_suppressed() {
+  local file=$1
+  [[ -f $file && ! -L $file ]] || return 1
+  grep -qx 'NoDisplay=true' -- "$file" \
+    && grep -qx 'X-AppImage-Suppressed=duplicate' -- "$file"
+}
+
+# mode is hide or show. The desktop file stays, so the panel list still finds
+# the app. hide sets NoDisplay so the app launcher skips our shortcut. show
+# removes only the lines this plugin added.
+rewrite_launcher() {
+  local file=$1 mode=$2 tmp old_umask status modebits
+  [[ $mode == hide || $mode == show ]] || return 1
+  [[ -f $file && ! -L $file ]] || return 1
+  [[ -d $DESKTOP_DIR && ! -L $DESKTOP_DIR ]] || return 1
+  old_umask=$(umask)
+  umask 077
+  tmp=$(mktemp -p "$DESKTOP_DIR" ".appimage-desktop.XXXXXXXXXX")
+  status=$?
+  umask "$old_umask"
+  ((status == 0)) || return 1
+  if ! (
+    local line bytes=0 in_entry=0 seen_entry=0 wrote_tail=0
+    while IFS= read -r line || [[ -n $line ]]; do
+      bytes=$((bytes + ${#line} + 1))
+      ((bytes <= 65536)) || exit 1
+      if [[ $line =~ ^\[([^]]+)\]$ ]]; then
+        if ((in_entry)) && [[ $mode == hide ]] && ((wrote_tail == 0)); then
+          printf '%s\n' 'NoDisplay=true' 'X-AppImage-Suppressed=duplicate'
+          wrote_tail=1
+        fi
+        if [[ ${BASH_REMATCH[1]} == "Desktop Entry" ]]; then
+          in_entry=1
+          seen_entry=1
+        else
+          in_entry=0
+        fi
+        printf '%s\n' "$line"
+        continue
+      fi
+      if ((in_entry)); then
+        case $line in
+        'NoDisplay='* | 'X-AppImage-Suppressed='*) continue ;;
+        esac
+      fi
+      printf '%s\n' "$line"
+    done <"$file"
+    ((seen_entry == 1)) || exit 1
+    if [[ $mode == hide ]] && ((wrote_tail == 0)); then
+      printf '%s\n' 'NoDisplay=true' 'X-AppImage-Suppressed=duplicate'
+    fi
+  ) >"$tmp"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  modebits=$(stat -c '%a' -- "$file" 2>/dev/null || printf '644')
+  chmod -- "$modebits" "$tmp" || {
+    rm -f -- "$tmp"
+    return 1
+  }
+  mv -f -T -- "$tmp" "$file"
+}
+
+# Hide this plugin's app-launcher shortcut when another visible desktop file
+# names the same payload, or show it again. The desktop file, its icon, and
+# the AppImage stay, so the panel list does not lose the app.
+reconcile_shortcuts() {
+  local mode=$1
+  local -a plugin_files=() plugin_payloads=() foreign_execs=()
+  local file count=0 payload exec_line try_line mentioned
+  local i changes=0 hidden=0 restored=0
+  local hidden_name="" restored_name=""
+  [[ $mode == hide || $mode == show ]] || return 1
   [[ -d $DESKTOP_DIR && ! -L $DESKTOP_DIR ]] || return 0
   while IFS= read -r -d '' file; do
     count=$((count + 1))
     ((count <= 400)) || break
     if grep -q '^Exec=.*omarchy-launch-appimage' "$file"; then
+      [[ -f $file && ! -L $file ]] || continue
       payload=$(desktop_payload_path "$file")
       [[ -n $payload ]] || continue
-      plugin_names+=("$(basename "${file%.desktop}")")
+      plugin_files+=("$file")
       plugin_payloads+=("$payload")
       continue
     fi
+    desktop_menu_visible "$file" || continue
     exec_line=$(desktop_value "$file" Exec)
     try_line=$(desktop_value "$file" TryExec)
     [[ -n $exec_line ]] && foreign_execs+=("$exec_line")
     [[ -n $try_line ]] && foreign_execs+=("$try_line")
   done < <(find -P "$DESKTOP_DIR" -maxdepth 3 -type f -name '*.desktop' -print0 2>/dev/null || true)
 
-  for i in "${!plugin_names[@]}"; do
+  for i in "${!plugin_files[@]}"; do
+    ((changes < 20)) || break
+    file=${plugin_files[$i]}
     payload=${plugin_payloads[$i]}
     mentioned=0
-    for exec_line in "${foreign_execs[@]}"; do
-      if exec_mentions_payload "$exec_line" "$payload"; then
-        mentioned=1
-        break
-      fi
-    done
-    if ((mentioned)); then
-      victims+=("${plugin_names[$i]}")
+    if [[ $mode == hide ]]; then
+      for exec_line in "${foreign_execs[@]}"; do
+        if exec_mentions_payload "$exec_line" "$payload"; then
+          mentioned=1
+          break
+        fi
+      done
+    fi
+    if [[ $mode == hide ]] && ((mentioned)); then
+      launcher_suppressed "$file" && continue
+      rewrite_launcher "$file" hide || continue
+      hidden=$((hidden + 1))
+      changes=$((changes + 1))
+      hidden_name=$(basename "${file%.desktop}")
+    elif launcher_suppressed "$file"; then
+      rewrite_launcher "$file" show || continue
+      restored=$((restored + 1))
+      changes=$((changes + 1))
+      restored_name=$(basename "${file%.desktop}")
     fi
   done
-  ((${#victims[@]})) || return 0
-  if ((${#victims[@]} > 20)); then
-    victims=("${victims[@]:0:20}")
-  fi
-  for name in "${victims[@]}"; do
-    [[ $name != -* && $name != *$'\n'* && $name != *$'\r'* && $name != */* ]] || continue
-    OMARCHY_REMOVE_NOTIFY=false "$0" --keep-file "$name" || continue
-    removed=$((removed + 1))
-    one=$name
-  done
-  ((removed)) || return 0
-  if ((removed == 1)); then
-    printf 'Removed the desktop entry for %s. The AppImage file is still in Applications.\n' "$one"
+  ((changes)) || return 0
+  update-desktop-database "$DESKTOP_DIR" &>/dev/null || true
+  if ((hidden == 1 && restored == 0)); then
+    printf 'Hid the shortcut for %s. It stays in this list.\n' "$hidden_name"
+  elif ((hidden > 1 && restored == 0)); then
+    printf 'Hid %s shortcuts that duplicated an app shortcut. They stay in this list.\n' "$hidden"
+  elif ((restored == 1 && hidden == 0)); then
+    printf 'Restored the shortcut for %s.\n' "$restored_name"
+  elif ((restored > 1 && hidden == 0)); then
+    printf 'Restored %s shortcuts.\n' "$restored"
   else
-    printf 'Removed %s desktop entries that duplicated an app shortcut. The AppImage files are still in Applications.\n' "$removed"
+    printf 'Updated shortcuts. Installed apps stay in this list.\n'
   fi
 }
 
 KEEP_FILE=false
 DROP_DUPLICATES=false
+SHOW_SHORTCUTS=false
 ARGS=()
 for arg in "$@"; do
   if [[ $arg == "--keep-file" ]]; then
     KEEP_FILE=true
   elif [[ $arg == "--drop-duplicates" ]]; then
     DROP_DUPLICATES=true
+  elif [[ $arg == "--show-shortcuts" ]]; then
+    SHOW_SHORTCUTS=true
   else
     ARGS+=("$arg")
   fi
 done
 
-if [[ $DROP_DUPLICATES == true ]]; then
-  if ((${#ARGS[@]})) || [[ $KEEP_FILE == true ]]; then
+if [[ $DROP_DUPLICATES == true || $SHOW_SHORTCUTS == true ]]; then
+  if ((${#ARGS[@]})) || [[ $KEEP_FILE == true ]] || [[ $DROP_DUPLICATES == true && $SHOW_SHORTCUTS == true ]]; then
     echo "Could not check shortcuts." >&2
     exit 2
   fi
-  drop_duplicates
+  if [[ $DROP_DUPLICATES == true ]]; then
+    reconcile_shortcuts hide
+  else
+    reconcile_shortcuts show
+  fi
   exit 0
 fi
 
