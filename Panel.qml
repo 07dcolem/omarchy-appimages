@@ -380,8 +380,6 @@ Item {
     }
     root.pickSerial = root.pickSerial + 1
     pickProc.serial = root.pickSerial
-    pickProc.out = ""
-    pickProc.err = ""
     root.status = "Choose an AppImage in the file chooser."
     pickProc.command = [root.pickBin, root.home + "/Downloads"]
     pickProc.running = true
@@ -527,29 +525,14 @@ Item {
   Process {
     id: pickProc
     property int serial: 0
-    property string out: ""
-    property string err: ""
-    stdout: SplitParser {
-      onRead: function (line) {
-        if (pickProc.out.length > 0) return
-        if (String(line).length > 4096) {
-          pickProc.running = false
-          return
-        }
-        pickProc.out = String(line)
-      }
-    }
-    stderr: SplitParser {
-      onRead: function (line) {
-        if (pickProc.err.length >= 400) return
-        var next = pickProc.err ? pickProc.err + " " + line : String(line)
-        pickProc.err = next.length > 400 ? next.slice(0, 400) : next
-      }
-    }
+    stdout: StdioCollector { id: pickOut; waitForEnd: true }
+    stderr: StdioCollector { id: pickErr; waitForEnd: true }
     onExited: function (code) {
       var serial = pickProc.serial
-      var out = pickProc.out
-      var err = pickProc.err
+      var out = String(pickOut.text || "")
+      var err = String(pickErr.text || "")
+      if (out.length > 4097) out = ""
+      if (err.length > 400) err = err.slice(0, 400)
       Qt.callLater(function () { root.finishPick(serial, code, out, err) })
     }
   }

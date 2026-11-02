@@ -90,6 +90,9 @@ Matches `/usr/share/omarchy/bin`.
 - The panel and the bar drop target pass local paths only. They do not download
   URLs. Add runs `omarchy-appimage-pick`, which asks the desktop portal and
   prints one path. It does not open a Qt file dialog in the shell process.
+  The portal sends `Request.Response` only to the connection that called
+  `OpenFile`, so the helper calls and waits in one `/usr/bin/python3 -I`
+  process. A second monitor never receives that result.
   The dialog is modal. On Hyprland, after the portal window maps, the script
   pins that window by the address `hyprctl clients` printed for class
   `xdg-desktop-portal-gtk` and title `Add an AppImage`. Pin draws it above a

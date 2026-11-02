@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.12 - 2026-11-01
+
+### Fixed
+
+- Add continues when the file chooser closes. The desktop portal sends the chosen file only to the program that opened the dialog, and the picker now waits on that same connection. The panel then shows that file for confirm.
+
+### Changed
+
+- Plugin version is 0.1.12.
+
 ## 0.1.11 - 2026-10-17
 
 ### Fixed

@@ -4,16 +4,15 @@
 #
 # Ask the desktop portal for one local file and print its path.
 # The dialog runs outside the shell. This script does not open, hash, or run the file.
+# Request.Response is delivered only to the connection that called OpenFile, so a
+# second monitor never sees it. The helper below calls and waits on one connection.
 # Exit 0 prints one path. Exit 1 is a cancelled chooser. Exit 2 is a chooser failure.
 
 set -euo pipefail
 LC_ALL=C
 
-MAX_REPLY=1024
-MAX_MONITOR=65536
 MAX_PATH=4096
 
-HANDLE=""
 MON_PID=""
 
 die() {
@@ -57,16 +56,6 @@ stop_tree() {
 }
 
 # shellcheck disable=SC2329
-close_request() {
-  [[ -n $HANDLE ]] || return 0
-  gdbus call --session \
-    --dest org.freedesktop.portal.Desktop \
-    --object-path "$HANDLE" \
-    --method org.freedesktop.portal.Request.Close >/dev/null 2>&1 || true
-  HANDLE=""
-}
-
-# shellcheck disable=SC2329
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -74,7 +63,6 @@ cleanup() {
   exec 4<&- 2>/dev/null || true
   stop_tree "$MON_PID"
   MON_PID=""
-  close_request
   exit "$status"
 }
 trap cleanup EXIT
@@ -86,24 +74,6 @@ start_ok() {
   ((${#path} <= MAX_PATH)) || return 1
   [[ $path != *$'\n'* && $path != *$'\r'* ]] || return 1
   [[ -d $path && ! -L $path ]]
-}
-
-folder_variant() {
-  local path=$1 decimal variant="[" first=1
-  # Decimal bytes, not a b'...' string. gdbus turned the octal escapes into
-  # a garbage path, so the chooser ignored the start folder.
-  while read -r decimal; do
-    [[ $decimal =~ ^[0-9]+$ ]] || return 1
-    ((decimal <= 255)) || return 1
-    if ((first)); then
-      first=0
-      variant+="byte $decimal"
-    else
-      variant+=", byte $decimal"
-    fi
-  done < <(printf '%s\0' "$path" | od -An -tu1 -v -w1)
-  [[ $variant == '[byte '* ]] || return 1
-  printf '%s' "${variant}]"
 }
 
 # hyprctl prints "Window <hex> -> ...". The selector wants 0x plus that hex.
@@ -218,78 +188,184 @@ if (($# > 1)); then
   die "Could not open the file chooser."
 fi
 
-command -v gdbus >/dev/null || die "Could not open the file chooser."
 command -v timeout >/dev/null || die "Could not open the file chooser."
-command -v stdbuf >/dev/null || die "Could not open the file chooser."
-command -v od >/dev/null || die "Could not open the file chooser."
-
-# modal is the portal default. false leaves the dialog under the focused window.
-options="{'multiple': <false>, 'modal': <true>, 'accept_label': <'Add'>, 'filters': <[('AppImages', [(uint32 0, '*.[aA][pP][pP][iI][mM][aA][gG][eE]')])]>"
-if folder=$(choose_folder "${1:-}"); then
-  if variant=$(folder_variant "$folder"); then
-    options+=", 'current_folder': <$variant>"
-  fi
+# OMARCHY_APPIMAGE_PICK_PY is the test double. The panel does not set it.
+if [[ -z ${OMARCHY_APPIMAGE_PICK_PY:-} && ! -x /usr/bin/python3 ]]; then
+  die "Could not open the file chooser. omarchy pkg add python"
 fi
-options+="}"
 
-reply=$(
-  gdbus call --session \
-    --dest org.freedesktop.portal.Desktop \
-    --object-path /org/freedesktop/portal/desktop \
-    --method org.freedesktop.portal.FileChooser.OpenFile \
-    "" \
-    "Add an AppImage" \
-    "$options" 2>/dev/null | head -c $((MAX_REPLY + 1))
-) || die "Could not open the file chooser."
-((${#reply} <= MAX_REPLY)) || die "Could not open the file chooser."
-[[ $reply =~ objectpath\ \'(/org/freedesktop/portal/desktop/request/[A-Za-z0-9_]+/[A-Za-z0-9_]+)\' ]] \
-  || die "Could not open the file chooser."
-HANDLE=${BASH_REMATCH[1]}
+folder=""
+if chosen=$(choose_folder "${1:-}"); then
+  folder=$chosen
+fi
 
+# The helper prints "0" and a file URI, "1" for cancel, or "2" for failure.
+# It stays up until the dialog closes, so the window can be pinned while it waits.
 exec 4< <(
-  # gdbus block-buffers a pipe, so the Response would sit unread until the
-  # dialog process exits. Line buffering delivers it as the dialog closes.
-  timeout -k 2 -- 180 stdbuf -oL gdbus monitor --session \
-    --dest org.freedesktop.portal.Desktop \
-    --object-path "$HANDLE" 2>/dev/null
+  if [[ -n ${OMARCHY_APPIMAGE_PICK_PY:-} ]]; then
+    timeout -k 2 -- 180 "$OMARCHY_APPIMAGE_PICK_PY" "$folder"
+  else
+    timeout -k 2 -- 180 /usr/bin/python3 -I - "$folder" <<'PY'
+import secrets
+import signal
+import sys
+
+try:
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import Gio, GLib, GLibUnix
+except Exception:
+    sys.stderr.write("Could not open the file chooser. omarchy pkg add python-gobject\n")
+    raise SystemExit(2)
+
+folder = sys.argv[1] if len(sys.argv) > 1 else ""
+token = "pick" + secrets.token_hex(16)
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+unique = bus.get_unique_name()
+if not unique or not unique.startswith(":"):
+    sys.stderr.write("Could not open the file chooser.\n")
+    raise SystemExit(2)
+sender = unique[1:].replace(".", "_")
+handle = "/org/freedesktop/portal/desktop/request/" + sender + "/" + token
+loop = GLib.MainLoop()
+state = {"done": False, "handle": handle}
+
+def close_request():
+    try:
+        bus.call_sync(
+            "org.freedesktop.portal.Desktop",
+            state["handle"],
+            "org.freedesktop.portal.Request",
+            "Close",
+            None,
+            None,
+            Gio.DBusCallFlags.NONE,
+            2000,
+            None,
+        )
+    except Exception:
+        pass
+
+def on_response(_conn, _sender, path, _interface, _signal, params):
+    if path != state["handle"] or state["done"]:
+        return
+    code, results = params.unpack()
+    uris = []
+    if isinstance(results, dict):
+        found = results.get("uris") or []
+        if isinstance(found, (list, tuple)):
+            uris = list(found)
+    state["done"] = True
+    if code == 1:
+        sys.stdout.write("1\n")
+    elif code == 0 and len(uris) == 1 and isinstance(uris[0], str):
+        uri = uris[0]
+        if 0 < len(uri) <= 12000 and "\n" not in uri and "\r" not in uri:
+            sys.stdout.write("0\n")
+            sys.stdout.write(uri + "\n")
+        else:
+            sys.stdout.write("2\n")
+    else:
+        sys.stdout.write("2\n")
+    sys.stdout.flush()
+    loop.quit()
+
+bus.signal_subscribe(
+    None,
+    "org.freedesktop.portal.Request",
+    "Response",
+    handle,
+    None,
+    Gio.DBusSignalFlags.NONE,
+    on_response,
+)
+
+opts = {
+    "handle_token": GLib.Variant("s", token),
+    "multiple": GLib.Variant("b", False),
+    # modal is the portal default. false leaves the dialog under the focused window.
+    "modal": GLib.Variant("b", True),
+    "accept_label": GLib.Variant("s", "Add"),
+    "filters": GLib.Variant(
+        "a(sa(us))",
+        [("AppImages", [(0, "*.[aA][pP][pP][iI][mM][aA][gG][eE]")])],
+    ),
+}
+if folder:
+    opts["current_folder"] = GLib.Variant("ay", list((folder + "\0").encode()))
+
+try:
+    reply = bus.call_sync(
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.FileChooser",
+        "OpenFile",
+        GLib.Variant("(ssa{sv})", ("", "Add an AppImage", opts)),
+        GLib.VariantType.new("(o)"),
+        Gio.DBusCallFlags.NONE,
+        30000,
+        None,
+    )
+except Exception:
+    sys.stderr.write("Could not open the file chooser.\n")
+    raise SystemExit(2)
+
+returned = reply.unpack()[0]
+if (
+    not isinstance(returned, str)
+    or len(returned) > 256
+    or not returned.startswith("/org/freedesktop/portal/desktop/request/")
+):
+    sys.stderr.write("Could not open the file chooser.\n")
+    raise SystemExit(2)
+allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_/")
+if any(ch not in allowed for ch in returned):
+    sys.stderr.write("Could not open the file chooser.\n")
+    raise SystemExit(2)
+if returned != handle:
+    state["handle"] = returned
+    bus.signal_subscribe(
+        None,
+        "org.freedesktop.portal.Request",
+        "Response",
+        returned,
+        None,
+        Gio.DBusSignalFlags.NONE,
+        on_response,
+    )
+
+def stop():
+    if not state["done"]:
+        close_request()
+    loop.quit()
+    return GLib.SOURCE_REMOVE
+
+GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
+GLib.timeout_add_seconds(175, stop)
+loop.run()
+if not state["done"]:
+    raise SystemExit(2)
+PY
+  fi
 )
 MON_PID=$!
 
-# The monitor is already reading, so a fast Accept is not lost while this runs.
 raise_chooser
 
-response=""
-chunk=""
-bytes=0
-# -N keeps the newline. -n would treat it as a delimiter and drop it.
-while IFS= read -r -N 1 -u 4 byte || [[ -n $byte ]]; do
-  bytes=$((bytes + 1))
-  ((bytes <= MAX_MONITOR)) || die "Could not open the file chooser."
-  if [[ $byte == $'\n' ]]; then
-    if [[ $chunk == *Request.Response* ]]; then
-      response=$chunk
-      break
-    fi
-    chunk=""
-    continue
-  fi
-  chunk+=$byte
-  ((${#chunk} <= 8192)) || die "Could not open the file chooser."
-done
-if [[ -z $response && $chunk == *Request.Response* ]]; then
-  response=$chunk
+if ! IFS= read -r -u 4 status_line; then
+  exit 2
 fi
-
-[[ -n $response ]] || die "Could not open the file chooser."
-[[ $response =~ uint32\ ([0-9]+) ]] || die "Could not open the file chooser."
-code=${BASH_REMATCH[1]}
-if [[ $code == 1 ]]; then
+status_line=${status_line%$'\r'}
+if [[ $status_line == 1 ]]; then
   exit 1
 fi
-[[ $code == 0 ]] || die "Could not open the file chooser."
-rest=${response#*file://}
-[[ $rest != "$response" ]] || die "The file chooser returned a path this plugin will not use."
-uri=file://${rest%%\'*}
+[[ $status_line == 0 ]] || exit 2
+if ! IFS= read -r -u 4 uri; then
+  exit 2
+fi
+uri=${uri%$'\r'}
 path=$(decode_file_uri "$uri") || die "The file chooser returned a path this plugin will not use."
 printf '%s\n' "$path"
 exit 0

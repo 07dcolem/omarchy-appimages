@@ -86,7 +86,7 @@ const named = context.layoutEntry({ layout: { right: ["07dcolem.appimages"] } },
 assert(named === "07dcolem.appimages", "string entry")
 assert(context.openWithPanelEnabled(named) === false, "string entry is off")
 const manifest = JSON.parse(fs.readFileSync(process.argv[3], "utf8"))
-assert(manifest.version === "0.1.11", "version")
+assert(manifest.version === "0.1.12", "version")
 assert(manifest.barWidget.defaults.openWithPanel === false, "default")
 assert(manifest.barWidget.defaults.dropDuplicateLaunchers === false, "duplicates default")
 const duplicate = manifest.barWidget.schema.find((item) => item.key === "dropDuplicateLaunchers")

@@ -36,7 +36,7 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 
 - Hover the bar icon for the name. The icon is a drop target.
 - Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
-- Add asks the desktop portal for a file. That chooser is a separate process, so a fault in it cannot take down the shell. The dialog is modal. On Hyprland it is pinned after it maps, so it opens in front of a fullscreen window. That window stays fullscreen. The panel still installs only a local `.AppImage`, and only after confirm.
+- Add asks the desktop portal for a file. That chooser is a separate process, so a fault in it cannot take down the shell. Closing it with a file brings that file back for confirm. The dialog is modal. On Hyprland it is pinned after it maps, so it opens in front of a fullscreen window. That window stays fullscreen. The panel still installs only a local `.AppImage`, and only after confirm.
 - A double-click opens the panel, and the file does not run until Install or Update.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
 - Before that confirm, the panel reads a type-2 bundle's name and version from the embedded filesystem with `unsquashfs -o` on the open file. The preview does not copy the file, move it, or mark it executable. A large local file is still previewed. The AppImage runs when you click Install or Update. If `python`, `squashfs-tools`, or `fuse2` is missing, the panel names that package and the `omarchy pkg add` command.
@@ -81,7 +81,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.11: install, update, list, open, remove, and unlist. Add uses the desktop portal in a separate process and pins that dialog on Hyprland so it stays in front of a fullscreen window. A panel switch hides this plugin's app-launcher shortcut when the app has installed its own, and the app stays in the list. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
+v0.1.12: install, update, list, open, remove, and unlist. Add uses the desktop portal in a separate process, returns the selected file when that dialog closes, and pins the dialog on Hyprland so it stays in front of a fullscreen window. A panel switch hides this plugin's app-launcher shortcut when the app has installed its own, and the app stays in the list. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 
@@ -95,13 +95,13 @@ omarchy pkg add fuse2
 
 `fuse3` only gives `fusermount3`. After you confirm Install or Update, metadata for the launcher still uses the bundle's `--appimage-extract`, which also wants `libfuse.so.2`.
 
-The preview before that confirm uses `/usr/bin/python3` and `unsquashfs`:
+Add talks to the file chooser with `/usr/bin/python3` and PyGObject (`python-gobject`). The preview before confirm also uses `/usr/bin/python3`, plus `unsquashfs`:
 
 ```bash
 omarchy pkg add python squashfs-tools
 ```
 
-Without either package, the panel names it. Confirm shows the filename and does not run the file.
+Without `python` or `squashfs-tools`, the panel names it. Confirm shows the filename and does not run the file. Without `python-gobject`, Add names that package and does not open the chooser.
 
 A launcher can still be written without FUSE. Starting the app may then fail. The panel warns, and the command is `omarchy pkg add fuse2`. `fuse3` does not provide `libfuse.so.2`.
 
