@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -69,8 +70,8 @@ Item {
   readonly property real cardW: 520
   readonly property real cardH: Math.min(520, Math.max(240,
     body.implicitHeight + card.contentTopInset + card.contentBottomInset))
-  readonly property color textColor: Color.popups.text
-  readonly property color muted: Color.muted
+  readonly property color textColor: Commons.Color.popups.text
+  readonly property color muted: Commons.Color.muted
   readonly property string fontFamily: Style.font.family
 
   function scriptDir() {
@@ -81,12 +82,26 @@ Item {
     return slash >= 0 ? url.substring(0, slash) : url
   }
 
+  // A drop maps this layer in the current turn. Take the keyboard on the
+  // next tick, after that map, and not from open() itself.
+  function takeFocus() {
+    Qt.callLater(function () {
+      if (!root.opened) return
+      root.dragging = false
+      if (!root.focusPrimed) prime.restart()
+      keys.forceActiveFocus()
+    })
+  }
+
   function open(payloadJson) {
     var payload = {}
     try { payload = JSON.parse(payloadJson || "{}") || {} } catch (e) {}
+    var fromDrop = !!(payload.path || payload.entries)
     root.opened = true
-    root.dragging = payload.drag === true
-    if (!root.dragging) {
+    // Keep the keyboard grab off while the drop's layer maps. The panel's
+    // own DropArea still sets dragging for a surface that already exists.
+    root.dragging = fromDrop
+    if (!fromDrop) {
       root.focusPrimed = false
       prime.restart()
     }
@@ -95,9 +110,11 @@ Item {
     if (root.dropDuplicatesOn) root.dedupeLaunchers()
     if (payload.path) considerPath(String(payload.path))
     else if (payload.entries) considerEntries(payload.entries)
-    Qt.callLater(function () {
-      if (root.opened) keys.forceActiveFocus()
-    })
+    else {
+      Qt.callLater(function () {
+        if (root.opened) keys.forceActiveFocus()
+      })
+    }
   }
 
   function close() {
@@ -290,6 +307,7 @@ Item {
     if (paths.length === 0) {
       root.status = "Drop a single .AppImage file."
       root.mode = "list"
+      root.takeFocus()
       return
     }
     if (paths.length > 1) root.status = "Installing the first AppImage. Drop one file at a time."
@@ -315,12 +333,11 @@ Item {
     root.confirmButton = "Install"
     root.inspectPending = true
     root.mode = "confirm"
-    root.dragging = false
     if (hashProc.running) hashProc.running = false
     hashProc.command = ["sha256sum", path]
     hashProc.running = true
     root.startInspect()
-    Qt.callLater(function () { if (root.opened) keys.forceActiveFocus() })
+    root.takeFocus()
   }
 
   function clearConfirm() {
@@ -688,7 +705,7 @@ Item {
     implicitWidth: labelText.implicitWidth + Style.space(20)
     implicitHeight: Style.space(28)
     radius: Style.cornerRadius
-    color: button.primary ? Color.accent : Style.hoverFill
+    color: button.primary ? Commons.Color.accent : Style.hoverFill
     opacity: button.enabled ? 1 : 0.45
 
     Text {
@@ -696,7 +713,7 @@ Item {
       anchors.centerIn: parent
       textFormat: Text.PlainText
       text: button.label
-      color: button.primary ? Color.background : Color.popups.text
+      color: button.primary ? Commons.Color.background : Commons.Color.popups.text
       font.family: Style.font.family
       font.pixelSize: Style.font.bodySmall
     }
@@ -747,8 +764,8 @@ Item {
     BorderSurface {
       id: card
       anchors.fill: parent
-      color: Color.popups.background
-      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+      color: Commons.Color.popups.background
+      borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
       padding: Style.space(14)
       radius: Style.cornerRadius
 
@@ -836,7 +853,7 @@ Item {
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
             text: "libfuse.so.2 is missing. Install can still proceed. An AppImage may not start until you install it (omarchy pkg add fuse2)."
-            color: Color.urgent
+            color: Commons.Color.urgent
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
           }
@@ -847,7 +864,7 @@ Item {
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
             text: "python is missing. Confirm shows the filename until you install it (omarchy pkg add python)."
-            color: Color.urgent
+            color: Commons.Color.urgent
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
           }
@@ -858,7 +875,7 @@ Item {
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
             text: "squashfs-tools is missing. Confirm shows the filename until you install it (omarchy pkg add squashfs-tools)."
-            color: Color.urgent
+            color: Commons.Color.urgent
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
           }

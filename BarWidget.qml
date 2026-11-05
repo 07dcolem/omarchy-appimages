@@ -1,11 +1,13 @@
 import QtQuick
-import Qt5Compat.GraphicalEffects
+import QtQuick.Effects
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Bar chip. The icon is the drop target. Holding a file on it opens the panel.
+// Bar chip. The icon is the drop target. A file held on it highlights the
+// icon. The panel opens after the drop, once the drag has finished.
 BarWidget {
   id: root
 
@@ -13,7 +15,7 @@ BarWidget {
   property var shell: null
 
   readonly property string pluginId: "07dcolem.appimages"
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property int barSlot: Style.bar.iconSlot
 
   property bool dragHover: false
@@ -133,13 +135,22 @@ BarWidget {
           sourceSize.width: Style.bar.iconCanvas
           sourceSize.height: Style.bar.iconCanvas
           visible: false
+          layer.enabled: true
           fillMode: Image.PreserveAspectFit
         }
 
-        ColorOverlay {
+        // Paint the bar color through the icon's alpha. A default Omarchy
+        // install has QtQuick.Effects and does not have Qt5Compat.
+        Rectangle {
           anchors.fill: glyph
-          source: glyph
-          color: root.dragHover ? Color.accent : root.foreground
+          color: root.dragHover ? Commons.Color.accent : root.foreground
+          layer.enabled: true
+          layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: glyph
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
+          }
         }
       }
     }
@@ -156,26 +167,15 @@ BarWidget {
       if (!drag.hasUrls && !drag.hasText) return
       drag.accept(Qt.CopyAction)
       root.dragHover = true
-      spring.restart()
     }
 
-    onExited: {
-      root.dragHover = false
-      spring.stop()
-    }
+    onExited: root.dragHover = false
 
     onDropped: function (drop) {
       root.dragHover = false
-      spring.stop()
       var entries = root.pathsFromDrop(drop)
       if (entries.length > 0) drop.accept(Qt.CopyAction)
       root.summon({ entries: entries })
     }
-  }
-
-  Timer {
-    id: spring
-    interval: 450
-    onTriggered: if (root.dragHover) root.summon({ drag: true })
   }
 }

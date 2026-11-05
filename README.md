@@ -34,8 +34,9 @@ AppImages already in `~/Applications`, their icons, and their `.desktop` launche
 
 ## Usage
 
-- Hover the bar icon for the name. The icon is a drop target.
-- Hold an `.AppImage` on the icon to open the panel, or drop it on the panel, or click Add.
+- Hover the bar icon for the name. A file held on the icon highlights it. The panel does not open during the drag.
+- Drop an `.AppImage` on the icon. The panel opens once the drag has finished and asks you to confirm that file.
+- Click the icon to open the panel, then drop a file on the panel, or click Add.
 - Add asks the desktop portal for a file. That chooser is a separate process, so a fault in it cannot take down the shell. Closing it with a file brings that file back for confirm. The dialog is modal. On Hyprland it is pinned after it maps, so it opens in front of a fullscreen window. That window stays fullscreen. The panel still installs only a local `.AppImage`, and only after confirm.
 - A double-click opens the panel, and the file does not run until Install or Update.
 - Confirm shows the filename, destination `~/Applications/<name>.AppImage`, and a SHA-256 when hashing finishes.
@@ -81,7 +82,7 @@ PLUGIN=~/.config/omarchy/plugins/07dcolem.appimages
 
 ## Scope
 
-v0.1.12: install, update, list, open, remove, and unlist. Add uses the desktop portal in a separate process, returns the selected file when that dialog closes, and pins the dialog on Hyprland so it stays in front of a fullscreen window. A panel switch hides this plugin's app-launcher shortcut when the app has installed its own, and the app stays in the list. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
+v0.1.13: install, update, list, open, remove, and unlist. Dropping a file on the bar icon opens the panel after the drag ends. Holding a file on the icon highlights it and does not open the panel. Add uses the desktop portal in a separate process, returns the selected file when that dialog closes, and pins the dialog on Hyprland so it stays in front of a fullscreen window. A panel switch hides this plugin's app-launcher shortcut when the app has installed its own, and the app stays in the list. URL installs are https-only, require a SHA-256, and stop at 500 MiB. The pre-install preview reads metadata in place, without copying or running the AppImage, and without a whole-file size cap. The panel names a missing `python`, `squashfs-tools`, or `fuse2` package.
 
 Not in this release: online update checks, GitHub/GitLab sources, side-by-side versions, background fetch, notifications.
 

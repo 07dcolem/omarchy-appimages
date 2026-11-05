@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.13 - 2026-11-05
+
+### Fixed
+
+- Holding an AppImage on the bar icon no longer opens the panel while the drag is in progress. That new layer froze the Hyprland session. The icon still highlights. Dropping the file on the icon opens the panel after the drag ends.
+- The bar icon tints with Qt Quick Effects, which Omarchy ships. The widget no longer needs Qt5Compat.GraphicalEffects, so it loads on a default install.
+- The panel reads the shell palette through Commons.Color. An unqualified Color did not resolve to that palette, so the card stayed white.
+
+### Changed
+
+- Plugin version is 0.1.13.
+
 ## 0.1.12 - 2026-11-01
 
 ### Fixed

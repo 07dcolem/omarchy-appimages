@@ -86,7 +86,7 @@ const named = context.layoutEntry({ layout: { right: ["07dcolem.appimages"] } },
 assert(named === "07dcolem.appimages", "string entry")
 assert(context.openWithPanelEnabled(named) === false, "string entry is off")
 const manifest = JSON.parse(fs.readFileSync(process.argv[3], "utf8"))
-assert(manifest.version === "0.1.12", "version")
+assert(manifest.version === "0.1.13", "version")
 assert(manifest.barWidget.defaults.openWithPanel === false, "default")
 assert(manifest.barWidget.defaults.dropDuplicateLaunchers === false, "duplicates default")
 const duplicate = manifest.barWidget.schema.find((item) => item.key === "dropDuplicateLaunchers")
@@ -340,6 +340,19 @@ JS
   exec_line=$(desktop_key "$launcher" Exec)
   [[ $exec_line == *omarchy-launch-appimage* ]]
   [[ $exec_line != *omarchy-appimage-open* ]]
+}
+
+@test "bar: a drag does not map the panel" {
+  ! grep -q 'id: spring' "$REPO_ROOT/BarWidget.qml"
+  ! grep -q 'drag: true' "$REPO_ROOT/BarWidget.qml"
+  ! grep -q 'Timer' "$REPO_ROOT/BarWidget.qml"
+  ! grep -F 'payload.drag' "$REPO_ROOT/Panel.qml"
+  grep -q 'dragHover' "$REPO_ROOT/BarWidget.qml"
+  grep -F 'summon({ entries: entries })' "$REPO_ROOT/BarWidget.qml"
+  grep -F 'The panel does not open during the drag.' "$REPO_ROOT/README.md"
+  ! grep -F 'Hold an' "$REPO_ROOT/README.md"
+  ! grep -q 'Qt5Compat' "$REPO_ROOT/BarWidget.qml"
+  grep -q 'QtQuick.Effects' "$REPO_ROOT/BarWidget.qml"
 }
 
 @test "association: nothing catches a direct execution" {
