@@ -91,8 +91,10 @@ Matches `/usr/share/omarchy/bin`.
   URLs. The bar icon highlights while a file is held over it and must not map
   the panel during that drag. A new layer surface while Hyprland still owns
   the pointer grab freezes the session. The panel opens from the icon's
-  `onDropped`, after the drag has finished. Do not add a timer that summons
-  the panel while `dragHover` is set. Add runs `omarchy-appimage-pick`, which
+  `onDropped`, and that summon is `Qt.callLater`, so the layer maps after the
+  drop handler returns. Do not add a timer that summons the panel while
+  `dragHover` is set. The panel DropArea must not assign `dragging`. After
+  Install, focus is on-demand, so the panel is not left with an exclusive grab. Add runs `omarchy-appimage-pick`, which
   asks the desktop portal and prints one path. It does not open a Qt file
   dialog in the shell process.
   The portal sends `Request.Response` only to the connection that called

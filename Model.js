@@ -198,3 +198,13 @@ function layoutEntry(config, id) {
   }
   return null
 }
+
+// none: hidden, a file drop is still mapping the panel, or the chooser is up.
+// exclusive: a click-opened panel's first beat, so it actually receives keys.
+// ondemand: the steady state. Exclusive left in place keeps the panel stuck
+// above other windows after Install.
+function keyboardFocusMode(opened, dragging, picking, focusPrimed) {
+  if (!opened || dragging || picking) return "none"
+  if (focusPrimed) return "ondemand"
+  return "exclusive"
+}

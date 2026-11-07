@@ -175,7 +175,10 @@ BarWidget {
       root.dragHover = false
       var entries = root.pathsFromDrop(drop)
       if (entries.length > 0) drop.accept(Qt.CopyAction)
-      root.summon({ entries: entries })
+      // Map the panel after this handler returns. Opening it here takes the
+      // keyboard while the drag grab is still held, and the window stays on top.
+      var captured = entries
+      Qt.callLater(function () { root.summon({ entries: captured }) })
     }
   }
 }

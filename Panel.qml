@@ -82,15 +82,23 @@ Item {
     return slash >= 0 ? url.substring(0, slash) : url
   }
 
-  // A drop maps this layer in the current turn. Take the keyboard on the
-  // next tick, after that map, and not from open() itself.
+  // A drop maps this layer after the drop handler returns. Stay without a
+  // keyboard grab until that map has settled, then use on-demand. The old
+  // path flipped to exclusive inside the drop and left the panel stuck on top.
   function takeFocus() {
     Qt.callLater(function () {
       if (!root.opened) return
-      root.dragging = false
-      if (!root.focusPrimed) prime.restart()
-      keys.forceActiveFocus()
+      dragSettle.restart()
     })
+  }
+
+  function releaseDragGrab() {
+    dragSettle.stop()
+    root.dragging = false
+    if (!root.opened) return
+    prime.stop()
+    root.focusPrimed = true
+    if (!pickProc.running) keys.forceActiveFocus()
   }
 
   function open(payloadJson) {
@@ -98,8 +106,8 @@ Item {
     try { payload = JSON.parse(payloadJson || "{}") || {} } catch (e) {}
     var fromDrop = !!(payload.path || payload.entries)
     root.opened = true
-    // Keep the keyboard grab off while the drop's layer maps. The panel's
-    // own DropArea still sets dragging for a surface that already exists.
+    // Keep the keyboard grab off while the drop's layer maps. Drop enter
+    // and exit must not write this. That flip is what stuck the window.
     root.dragging = fromDrop
     if (!fromDrop) {
       root.focusPrimed = false
@@ -120,6 +128,7 @@ Item {
   function close() {
     root.opened = false
     root.dragging = false
+    dragSettle.stop()
     root.busy = false
     root.mode = "list"
     root.clearConfirm()
@@ -434,6 +443,7 @@ Item {
   }
 
   function finishInstall(code, stdout, stderr) {
+    root.releaseDragGrab()
     root.busy = false
     var err = String(stderr || "").trim()
     var out = String(stdout || "").trim()
@@ -697,6 +707,12 @@ Item {
     onTriggered: root.focusPrimed = true
   }
 
+  Timer {
+    id: dragSettle
+    interval: 50
+    onTriggered: root.releaseDragGrab()
+  }
+
   component TextButton: Rectangle {
     id: button
     property string label: ""
@@ -733,9 +749,15 @@ Item {
     WlrLayershell.namespace: "07dcolem-appimages"
     WlrLayershell.layer: WlrLayer.Top
     // Drop the keyboard grab while the portal dialog is up so it can take focus.
-    WlrLayershell.keyboardFocus: !root.opened || root.dragging || pickProc.running
-      ? WlrKeyboardFocus.None
-      : (root.focusPrimed ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive)
+    // dragging stays true only while a drop is mapping this layer. Enter and
+    // exit must not change it. Exclusive left on after Install stuck the panel
+    // above other windows.
+    WlrLayershell.keyboardFocus: {
+      var mode = Model.keyboardFocusMode(root.opened, root.dragging, pickProc.running, root.focusPrimed)
+      if (mode === "none") return WlrKeyboardFocus.None
+      if (mode === "ondemand") return WlrKeyboardFocus.OnDemand
+      return WlrKeyboardFocus.Exclusive
+    }
 
     implicitWidth: root.cardW
     implicitHeight: root.cardH
@@ -1206,11 +1228,8 @@ Item {
         onEntered: function (drag) {
           if (!drag.hasUrls && !drag.hasText) return
           drag.accept(Qt.CopyAction)
-          root.dragging = true
         }
-        onExited: root.dragging = false
         onDropped: function (drop) {
-          root.dragging = false
           var entries = []
           if (drop.hasUrls && drop.urls) {
             for (var i = 0; i < drop.urls.length; i++) entries.push(String(drop.urls[i]))
@@ -1219,7 +1238,10 @@ Item {
             for (var j = 0; j < lines.length; j++) if (lines[j]) entries.push(lines[j])
           }
           if (entries.length > 0) drop.accept(Qt.CopyAction)
-          root.considerEntries(entries)
+          var captured = entries
+          Qt.callLater(function () {
+            if (root.opened) root.considerEntries(captured)
+          })
         }
       }
     }
