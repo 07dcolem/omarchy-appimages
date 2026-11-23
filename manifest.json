@@ -3,7 +3,7 @@
   "id": "07dcolem.appimages",
   "name": "AppImages",
   "version": "0.1.14",
-  "author": "07dcolem",
+  "author": "Dylan Coleman",
   "license": "MIT",
   "description": "Install, update, list, and remove AppImages from the bar.",
   "kinds": ["bar-widget", "panel"],
