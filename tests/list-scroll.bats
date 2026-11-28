@@ -16,5 +16,7 @@ load helpers/harness
   grep -F 'Keys.priority: Keys.BeforeItem' "$REPO_ROOT/Panel.qml"
   grep -F 'focusPolicy: Qt.NoFocus' "$REPO_ROOT/Panel.qml"
   grep -F 'positionViewAtIndex' "$REPO_ROOT/Panel.qml"
+  grep -F 'id: scrollHint' "$REPO_ROOT/Panel.qml"
+  grep -F 'moreBelow' "$REPO_ROOT/Panel.qml"
   ! grep -F 'id: listColumn' "$REPO_ROOT/Panel.qml"
 }

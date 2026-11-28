@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "07dcolem.appimages",
   "name": "AppImages",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "author": "Dylan Coleman",
   "license": "MIT",
   "description": "Install, update, list, and remove AppImages from the bar.",

@@ -85,6 +85,7 @@ Item {
   readonly property real cardH: Math.min(root.maxCardH, Math.max(240,
     body.implicitHeight + card.contentTopInset + card.contentBottomInset))
   readonly property color textColor: Commons.Color.popups.text
+  readonly property color cardBg: Commons.Color.popups.background
   readonly property color muted: Commons.Color.muted
   readonly property string fontFamily: Style.font.family
 
@@ -948,7 +949,14 @@ Item {
             font.pixelSize: Style.font.body
           }
 
-          ListView {
+          Item {
+            id: listFrame
+            width: parent.width
+            visible: appList.viewport > 0
+            height: appList.viewport
+            implicitHeight: height
+
+            ListView {
             id: appList
             // ListView.contentHeight stays 0 until the view has a height, so
             // the viewport is the row count clamped to the room under the card.
@@ -959,16 +967,14 @@ Item {
               var room = Model.listRoom(root.innerMax, root.chromeHeights(), body.spacing, true)
               return Model.listViewport(content, room)
             }
+            readonly property bool moreBelow: contentHeight > height + 0.5 && contentY + height < contentHeight - 2
             readonly property real scrollPad: {
               if (contentHeight <= height + 0.5) return 0
               var bar = appScroll.implicitWidth
               if (!(bar > 0)) bar = Style.space(8)
               return bar + Style.space(4)
             }
-            visible: viewport > 0
-            width: parent.width
-            height: viewport
-            implicitHeight: viewport
+            anchors.fill: parent
             spacing: Style.space(4)
             clip: true
             // The panel cursor owns Up and Down. The view's own key handling
@@ -1094,6 +1100,52 @@ Item {
                   }
                 }
               }
+            }
+
+            // Sits on the list, not in the scroll content. Hidden once the
+            // last row is on screen, and it does not take clicks or keys.
+            Item {
+              id: scrollHint
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              height: Style.space(22)
+              visible: appList.moreBelow
+              z: 2
+
+              Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                  GradientStop { position: 0; color: Qt.rgba(root.cardBg.r, root.cardBg.g, root.cardBg.b, 0) }
+                  GradientStop { position: 1; color: Qt.rgba(root.cardBg.r, root.cardBg.g, root.cardBg.b, 0.5) }
+                }
+              }
+
+              Canvas {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Style.space(2)
+                width: Style.space(12)
+                height: Style.space(6)
+                onPaint: {
+                  var ctx = getContext("2d")
+                  ctx.clearRect(0, 0, width, height)
+                  ctx.strokeStyle = root.muted
+                  ctx.globalAlpha = 0.55
+                  ctx.lineWidth = Math.max(1, Style.space(1))
+                  ctx.lineCap = "round"
+                  ctx.lineJoin = "round"
+                  ctx.beginPath()
+                  ctx.moveTo(ctx.lineWidth, ctx.lineWidth)
+                  ctx.lineTo(width / 2, height - ctx.lineWidth)
+                  ctx.lineTo(width - ctx.lineWidth, ctx.lineWidth)
+                  ctx.stroke()
+                }
+                Component.onCompleted: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+              }
+            }
           }
 
           Column {
