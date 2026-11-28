@@ -208,3 +208,46 @@ function keyboardFocusMode(opened, dragging, picking, focusPrimed) {
   if (focusPrimed) return "ondemand"
   return "exclusive"
 }
+
+function positiveSize(value) {
+  var n = Number(value)
+  if (!isFinite(n) || n <= 0) return 0
+  return n
+}
+
+// Room left inside the card after the header, notes, and the switches under
+// the list. A non-positive chrome height is a row that is not shown.
+function listRoom(innerMax, chromeHeights, spacing, includeList) {
+  var inner = positiveSize(innerMax)
+  var gap = Number(spacing)
+  if (!isFinite(gap) || gap < 0) gap = 0
+  var heights = Array.isArray(chromeHeights) ? chromeHeights : []
+  var used = 0
+  var count = includeList ? 1 : 0
+  for (var i = 0; i < heights.length; i++) {
+    var h = positiveSize(heights[i])
+    if (h <= 0) continue
+    used += h
+    count += 1
+  }
+  var gaps = Math.max(0, count - 1) * gap
+  return Math.max(0, inner - used - gaps)
+}
+
+function listContentHeight(count, rowHeight, spacing) {
+  var n = Math.floor(positiveSize(count))
+  var row = positiveSize(rowHeight)
+  if (n <= 0 || row <= 0) return 0
+  var gap = Number(spacing)
+  if (!isFinite(gap) || gap < 0) gap = 0
+  return (n * row) + ((n - 1) * gap)
+}
+
+// The list stays at its content height until that would push the switches
+// past the card. After that the viewport is the leftover room and the rows scroll.
+function listViewport(contentHeight, room) {
+  var content = positiveSize(contentHeight)
+  var space = positiveSize(room)
+  if (content <= 0 || space <= 0) return 0
+  return Math.min(content, space)
+}

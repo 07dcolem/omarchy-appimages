@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -68,7 +69,20 @@ Item {
   readonly property real barThickness: barState && barState.barSize ? Number(barState.barSize) : Style.space(36)
   readonly property real gap: Style.gapsOut
   readonly property real cardW: 520
-  readonly property real cardH: Math.min(520, Math.max(240,
+  // The card stops at 520, or sooner when the screen is shorter. The app
+  // list scrolls in the leftover space so the switches stay on the card.
+  readonly property real maxCardH: {
+    var cap = 520
+    var screenH = window.screen ? Number(window.screen.height) : 0
+    if (screenH > 0) {
+      var fit = screenH - root.barThickness - (root.gap * 2)
+      if (fit > 0) cap = Math.min(cap, fit)
+    }
+    return Math.max(160, cap)
+  }
+  readonly property real innerMax: Math.max(0,
+    root.maxCardH - card.contentTopInset - card.contentBottomInset)
+  readonly property real cardH: Math.min(root.maxCardH, Math.max(240,
     body.implicitHeight + card.contentTopInset + card.contentBottomInset))
   readonly property color textColor: Commons.Color.popups.text
   readonly property color muted: Commons.Color.muted
@@ -541,12 +555,25 @@ Item {
     inspectProc.running = false
   }
 
+  function chromeHeights() {
+    var items = [headerRow, fuseNote, pythonNote, squashfsNote, emptyNote, confirmCol, removeCol, unlistCol, statusText, associationRow, duplicateRow]
+    var heights = []
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i]
+      if (!item || !item.visible) continue
+      var h = Math.max(Number(item.height) || 0, Number(item.implicitHeight) || 0)
+      if (h > 0) heights.push(h)
+    }
+    return heights
+  }
+
   function moveCursor(delta) {
     if (root.mode !== "list" || root.apps.length === 0) return
     var next = root.cursor + delta
     if (next < 0) next = 0
     if (next >= root.apps.length) next = root.apps.length - 1
     root.cursor = next
+    Qt.callLater(appList.reveal)
   }
 
   Process {
@@ -799,6 +826,9 @@ Item {
         anchors.bottomMargin: card.contentBottomInset
         anchors.leftMargin: card.contentLeftInset
         focus: true
+        // Before the list sees the key. A Flickable with focus scrolls on
+        // Up and Down and never moves this cursor.
+        Keys.priority: Keys.BeforeItem
 
         Keys.onEscapePressed: function (event) { root.dismiss(); event.accepted = true }
         Keys.onUpPressed: function (event) { root.moveCursor(-1); event.accepted = true }
@@ -820,6 +850,7 @@ Item {
           spacing: Style.space(10)
 
           Item {
+            id: headerRow
             width: parent.width
             height: Style.space(28)
 
@@ -870,6 +901,7 @@ Item {
           }
 
           Text {
+            id: fuseNote
             visible: !root.fuseOk
             width: parent.width
             wrapMode: Text.WordWrap
@@ -881,6 +913,7 @@ Item {
           }
 
           Text {
+            id: pythonNote
             visible: !root.pythonOk
             width: parent.width
             wrapMode: Text.WordWrap
@@ -892,6 +925,7 @@ Item {
           }
 
           Text {
+            id: squashfsNote
             visible: !root.squashfsOk
             width: parent.width
             wrapMode: Text.WordWrap
@@ -902,33 +936,91 @@ Item {
             font.pixelSize: Style.font.bodySmall
           }
 
-          Column {
-            id: listColumn
-            visible: root.mode === "list"
+          Text {
+            id: emptyNote
+            visible: root.mode === "list" && root.apps.length === 0
             width: parent.width
-            spacing: Style.space(4)
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: "Nothing installed yet. Drop an AppImage on the bar icon, or use Add."
+            color: root.muted
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
 
-            Text {
-              visible: root.apps.length === 0
-              width: parent.width
-              wrapMode: Text.WordWrap
-              textFormat: Text.PlainText
-              text: "Nothing installed yet. Drop an AppImage on the bar icon, or use Add."
-              color: root.muted
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
+          ListView {
+            id: appList
+            // ListView.contentHeight stays 0 until the view has a height, so
+            // the viewport is the row count clamped to the room under the card.
+            readonly property real rowHeight: Style.space(48)
+            readonly property real viewport: {
+              if (root.mode !== "list" || root.apps.length === 0) return 0
+              var content = Model.listContentHeight(root.apps.length, appList.rowHeight, appList.spacing)
+              var room = Model.listRoom(root.innerMax, root.chromeHeights(), body.spacing, true)
+              return Model.listViewport(content, room)
+            }
+            readonly property real scrollPad: {
+              if (contentHeight <= height + 0.5) return 0
+              var bar = appScroll.implicitWidth
+              if (!(bar > 0)) bar = Style.space(8)
+              return bar + Style.space(4)
+            }
+            visible: viewport > 0
+            width: parent.width
+            height: viewport
+            implicitHeight: viewport
+            spacing: Style.space(4)
+            clip: true
+            // The panel cursor owns Up and Down. The view's own key handling
+            // would move currentIndex, drop the binding, and scroll away from
+            // the highlighted row.
+            keyNavigationEnabled: false
+            activeFocusOnTab: false
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+            interactive: contentHeight > height + 0.5
+            model: root.apps
+            currentIndex: root.apps.length === 0 ? -1 : root.cursor
+            // If the view itself has focus, accept the keys before Flickable
+            // scrolls. The panel handler covers the case where the scope does.
+            Keys.priority: Keys.BeforeItem
+            Keys.onUpPressed: function (event) { root.moveCursor(-1); event.accepted = true }
+            Keys.onDownPressed: function (event) { root.moveCursor(1); event.accepted = true }
+            Keys.onEscapePressed: function (event) { root.dismiss(); event.accepted = true }
+            Keys.onReturnPressed: function (event) {
+              if (root.mode === "list") root.launchCursor()
+              else root.acceptDialog()
+              event.accepted = true
+            }
+            Keys.onEnterPressed: function (event) {
+              if (root.mode === "list") root.launchCursor()
+              else root.acceptDialog()
+              event.accepted = true
+            }
+            onCurrentIndexChanged: Qt.callLater(reveal)
+            onCountChanged: Qt.callLater(reveal)
+            function reveal() {
+              if (root.mode !== "list" || count < 1 || height < 1) return
+              var index = root.cursor
+              if (index < 0 || index >= count) return
+              positionViewAtIndex(index, ListView.Contain)
             }
 
-            Repeater {
-              model: root.apps
-              delegate: Rectangle {
-                id: row
-                required property int index
-                required property var modelData
-                width: listColumn.width
-                height: Style.space(48)
-                radius: Style.cornerRadius
-                color: index === root.cursor ? Style.selectedFill : "transparent"
+            ScrollBar.vertical: ScrollBar {
+              id: appScroll
+              policy: ScrollBar.AsNeeded
+              activeFocusOnTab: false
+              focusPolicy: Qt.NoFocus
+            }
+
+            delegate: Rectangle {
+              id: row
+              required property int index
+              required property var modelData
+              width: appList.width - appList.scrollPad
+              height: appList.rowHeight
+              radius: Style.cornerRadius
+              color: index === root.cursor ? Style.selectedFill : "transparent"
 
                 MouseArea {
                   anchors.fill: parent
@@ -1002,10 +1094,10 @@ Item {
                   }
                 }
               }
-            }
           }
 
           Column {
+            id: confirmCol
             visible: root.mode === "confirm"
             width: parent.width
             spacing: Style.space(6)
@@ -1089,6 +1181,7 @@ Item {
           }
 
           Column {
+            id: removeCol
             visible: root.mode === "remove"
             width: parent.width
             spacing: Style.space(8)
@@ -1125,6 +1218,7 @@ Item {
           }
 
           Column {
+            id: unlistCol
             visible: root.mode === "unlist"
             width: parent.width
             spacing: Style.space(8)
@@ -1156,6 +1250,7 @@ Item {
           }
 
           Text {
+            id: statusText
             visible: root.status !== ""
             width: parent.width
             wrapMode: Text.WordWrap
@@ -1167,6 +1262,7 @@ Item {
           }
 
           Item {
+            id: associationRow
             width: parent.width
             implicitHeight: Math.max(associationText.implicitHeight, associationSwitch.implicitHeight)
 
@@ -1194,6 +1290,7 @@ Item {
           }
 
           Item {
+            id: duplicateRow
             width: parent.width
             implicitHeight: Math.max(duplicateText.implicitHeight, duplicateSwitch.implicitHeight)
 

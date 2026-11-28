@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.15 - 2026-11-28
+
+### Fixed
+
+- The app list scrolls inside the panel when it is taller than the card. Up and Down move the selection, the selected row stays on screen, and the switches under the list stay visible.
+
+### Changed
+
+- Plugin version is 0.1.15.
+
 ## 0.1.14 - 2026-11-06
 
 ### Fixed
